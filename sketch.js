@@ -22,7 +22,7 @@ const PX_PER_M = 20;
 // 10' x 40' => 3.048 m x 12.192 m
 const DOCK = {
   width_m: 4,
-  length_m: 16,
+  length_m: 14,
   pos: { x: 0, y: 0 },  // px (world)
   angleDeg: 0          // 0=along +x
 };
