@@ -263,9 +263,9 @@ const BOAT_CONFIG = {
     rho: 1.225,
     Cd_front: 0.9,     // head/tail wind drag coefficient
     Cd_side: 1.2,      // beam wind drag coefficient
-    A_front: 1.2,      // m^2 projected area for headwind
+    A_front: 2.0,      // m^2 projected area for headwind
     A_side: 6.0,       // m^2 projected area for beam wind
-    cp_x: 0.4          // m, center of pressure ahead of CG (+forward)
+    cp_x: 0.0          // m, center of pressure ahead of CG (+forward)
   },
 
   // Geometry-informed water model inputs (from Chip)
@@ -283,16 +283,16 @@ const BOAT_CONFIG = {
   // Thrusters (power-limited)
   thrusters: [
     { name:"Bow",       x:  1.387, y:  0.000, angle:  90,
-      P_cont: 2000, P_peak: 3700, eta: 0.35,
-      T_forward_max: 1200, T_reverse_max: 900, forwardSign: 1 },
+      P_cont: 3000, P_peak: 3700, eta: 0.08,
+      T_forward_max: 400, T_reverse_max: 300, forwardSign: 1 },
 
-    { name:"Port",      x: -2.555, y:  0.753, angle:  31.5,
-      P_cont: 2000, P_peak: 3700, eta: 0.35,
-      T_forward_max: 1200, T_reverse_max: 900, forwardSign: 1 },
+    { name:"Port",      x: -2.555, y:  0.753, angle:  211.5,
+      P_cont: 3000, P_peak: 3700, eta: 0.08,
+      T_forward_max: 400, T_reverse_max: 300, forwardSign: -1 },
 
-    { name:"Starboard", x: -2.555, y: -0.753, angle: -31.5,
-      P_cont: 2000, P_peak: 3700, eta: 0.35,
-      T_forward_max: 1200, T_reverse_max: 900, forwardSign: 1 },
+    { name:"Starboard", x: -2.555, y: -0.753, angle: 148.5,
+      P_cont: 3000, P_peak: 3700, eta: 0.08,
+      T_forward_max: 400, T_reverse_max: 300, forwardSign: -1 },
   ]
 };
 
@@ -302,6 +302,8 @@ const keyboardState = {
   a: false,
   s: false,
   d: false,
+  q: false,
+  e: false,
   j: false,
   k: false,
   space: false
@@ -477,9 +479,16 @@ function hullHydroForces(u, v, r) {
 function thrustLimitForThruster(t, speed_mps, usePeak = false) {
   const P = usePeak ? t.P_peak : t.P_cont; // W
   const Vmin = 0.6;                        // m/s slip floor
-  const T_power = (t.eta * P) / Math.max(speed_mps, Vmin);
-  // Return all relevant values for caller to select
-  return { T_power, T_forward_max: t.T_forward_max, T_reverse_max: t.T_reverse_max, forwardSign: t.forwardSign };
+  
+  // Power-limited thrust for forward (using base eta)
+  const T_power_fwd = (t.eta * P) / Math.max(speed_mps, Vmin);
+  
+  // Power-limited thrust for reverse (assume efficiency scales with max thrust ratio)
+  // eta_rev = eta * (T_rev_max / T_fwd_max)
+  const ratio = t.T_reverse_max / t.T_forward_max;
+  const T_power_rev = (T_power_fwd * ratio);
+
+  return { T_power_fwd, T_power_rev, T_forward_max: t.T_forward_max, T_reverse_max: t.T_reverse_max, forwardSign: t.forwardSign };
 }
 
 // ---------------- CONTROL ALLOCATION ----------------
@@ -544,15 +553,27 @@ function mul3x3_vec3(m, v) {
 }
 
 function allocateThrusters(Fx_cmd, Fy_cmd, Tau_cmd) {
-  if (!ALLOC || !ALLOC.Ainv) return [0, 0, 0];
+  if (!ALLOC || !ALLOC.Ainv || !boatState) return [0, 0, 0];
 
   const Fi = mul3x3_vec3(ALLOC.Ainv, [Fx_cmd, Fy_cmd, Tau_cmd]);
 
   const speed = Math.hypot(boatState.vel.x, boatState.vel.y);
   let cmd = Fi.map((f, idx) => {
     const t = BOAT_CONFIG.thrusters[idx];
-    const Tmax = thrustLimitForThruster(t, speed, false);
-    return f / Math.max(Tmax, 1e-6);
+    const thrustInfo = thrustLimitForThruster(t, speed, false);
+    
+    // Determine max thrust available in the requested direction
+    // If f and forwardSign have same sign -> Forward mode (efficient)
+    // If f and forwardSign have diff sign -> Reverse mode (inefficient)
+    const isForward = (f * t.forwardSign) >= 0;
+    
+    const limit_struct = isForward ? thrustInfo.T_forward_max : thrustInfo.T_reverse_max;
+    const limit_power = isForward ? thrustInfo.T_power_fwd : thrustInfo.T_power_rev;
+    
+    // Available thrust is min of power limit and structural limit
+    const available = Math.min(limit_struct, limit_power);
+    
+    return f / Math.max(available, 1e-6);
   });
 
   const maxAbs = Math.max(...cmd.map(c => Math.abs(c)));
@@ -561,14 +582,65 @@ function allocateThrusters(Fx_cmd, Fy_cmd, Tau_cmd) {
   return cmd.map(c => clamp(c, -1, 1));
 }
 
+// ---------------- P5 INPUT HANDLERS ----------------
+function keyPressed() {
+  const k = key.toLowerCase();
+  if (k === 'w') keyboardState.w = true;
+  if (k === 'a') keyboardState.a = true;
+  if (k === 's') keyboardState.s = true;
+  if (k === 'd') keyboardState.d = true;
+  if (k === 'j') keyboardState.j = true;
+  if (k === 'k') keyboardState.k = true;
+  if (k === 'q') keyboardState.q = true; // Added Q/E for sway (left/right) if needed, though A/D is mapping to fy currently? 
+  // Wait, readKeyboard maps A/D to fy (sway) and W/S to fx (surge). 
+  // The help text says:
+  // '  W/S: Forward/Reverse thrust',
+  // '  A/D: Rotate left/right (yaw)',
+  // '  Q/E: Sway left/right (sideways thrust)',
+  
+  // Let's check readKeyboard again.
+  // 589:  if (keyboardState.d) fy += 1;
+  // 590:  if (keyboardState.a) fy -= 1;
+  // This maps A/D to Sway (fy). 
+  // Usual boat controls: A/D is Yaw. Q/E is Sway (or vice versa).
+  
+  if (k === 'e') keyboardState.e = true;
+  if (k === 'q') keyboardState.q = true;
+
+  if (key === ' ') keyboardState.space = true;
+  // Prevent default scrolling for game keys
+  if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+    return false;
+  }
+}
+
+function keyReleased() {
+  const k = key.toLowerCase();
+  if (k === 'w') keyboardState.w = false;
+  if (k === 'a') keyboardState.a = false;
+  if (k === 's') keyboardState.s = false;
+  if (k === 'd') keyboardState.d = false;
+  if (k === 'j') keyboardState.j = false;
+  if (k === 'k') keyboardState.k = false;
+  if (k === 'q') keyboardState.q = false;
+  if (k === 'e') keyboardState.e = false;
+  if (key === ' ') keyboardState.space = false;
+}
+
 // ---------------- KEYBOARD INPUT ----------------
 function readKeyboard() {
   let fx = 0, fy = 0, yaw = 0;
   
   if (keyboardState.w) fx += 1;
   if (keyboardState.s) fx -= 1;
-  if (keyboardState.d) fy += 1;
-  if (keyboardState.a) fy -= 1;
+
+  // Sway (Sideways)
+  if (keyboardState.e) fy += 1;
+  if (keyboardState.q) fy -= 1;
+  
+  // Yaw (Rotation)
+  if (keyboardState.d) yaw += 1;
+  if (keyboardState.a) yaw -= 1;
   if (keyboardState.k) yaw += 1;
   if (keyboardState.j) yaw -= 1;
   
@@ -810,12 +882,31 @@ function updatePhysics(dt) {
     const thrustInfo = thrustLimitForThruster(t, speed, false);
     // Determine if command is forward or reverse
     const isForward = (cmd * t.forwardSign) > 0;
-    const Tmax = isForward ? thrustInfo.T_forward_max : thrustInfo.T_reverse_max;
-    const F = Math.min(thrustInfo.T_power, Tmax) * cmd;
+    
+    const Tmax_struct = isForward ? thrustInfo.T_forward_max : thrustInfo.T_reverse_max;
+    const Tmax_power = isForward ? thrustInfo.T_power_fwd : thrustInfo.T_power_rev;
+    
+    // Effective max thrust is min of structural and power limit
+    const Tmax = Math.min(Tmax_struct, Tmax_power);
+    
+    const F = Tmax * Math.abs(cmd); // apply magnitude scaling
+
+    // Direction depends on command sign relative to forwardSign
+    // if cmd > 0 and forwardSign=1 -> Fwd (+ thrust).  
+    // if cmd < 0 and forwardSign=1 -> Rev (- thrust).
+    // so raw singed thrust F_signed = F * sign(cmd) * forwardSign? No.
+    // Thruster angle is defined for Positive Thrust. 
+    // If cmd is positive, we thrust in direction 'angle'.
+    // If cmd is negative, we thrust in direction 'angle + 180'.
+    
+    // Let's just use cmd as the sign flipper.
+    // F_scalar = F_mag * sign(cmd)
+    
+    const F_signed = F * Math.sign(cmd); 
 
     const worldAngle = boatState.heading + radians(t.angle);
-    const fx = Math.cos(worldAngle) * F;
-    const fy = Math.sin(worldAngle) * F;
+    const fx = Math.cos(worldAngle) * F_signed;
+    const fy = Math.sin(worldAngle) * F_signed;
 
     netFx += fx; netFy += fy;
 
@@ -1295,12 +1386,12 @@ function drawUI(debug, joy) {
   
   if (joy && joy.connected) {
     if (joy.source === 'keyboard') {
-      text(`Keyboard: W/A/S/D for thrust, J/K for yaw | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
+      text(`Keyboard: W/S surge, Q/E sway, A/D yaw | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
     } else {
       text(`Gamepad: fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw(axis5) ${joy.yaw.toFixed(2)}  axes:${joy.axesCount}`, 20, height - 18);
     }
   } else {
-    text("Keyboard: W/S forward/back | A/D left/right | J/K yaw | or connect gamepad", 20, height - 18);
+    text("Keyboard: W/S surge | Q/E sway | A/D yaw | or connect gamepad", 20, height - 18);
   }
 }
 
@@ -1355,13 +1446,29 @@ function drawThrusterPanel() {
   for (let i = 0; i < 3; i++) {
     const t = BOAT_CONFIG.thrusters[i];
     const cmd = clamp(boatState.thrusterCmd[i], -1, 1);
-    const Tmax = thrustLimitForThruster(t, speed, false);
-    const Tact = Math.abs(cmd) * Tmax;
+    
+    const thrustInfo = thrustLimitForThruster(t, speed, false);
+    
+    // Determine limit based on direction
+    const isForward = (cmd * t.forwardSign) >= 0;
+    const limit_struct = isForward ? thrustInfo.T_forward_max : thrustInfo.T_reverse_max;
+    const limit_power = isForward ? thrustInfo.T_power_fwd : thrustInfo.T_power_rev;
+    const available = Math.min(limit_struct, limit_power);
+    
+    const Tact = Math.abs(cmd) * available;
 
-    // Estimate input power (W): P ≈ T * Veff / eta, limited by P_cont
+    // Estimate input power (W): P ≈ T * Veff / (eta_eff)
     let P_est = 0;
-    if (t.eta > 1e-6) {
-      P_est = (Tact * Veff) / t.eta;
+    // Effective efficiency scales with the max thrust ratio if in reverse
+    // We assume T_power_rev was derived such that P is constant.
+    // P = T_power_fwd * V / eta
+    // P = T_power_rev * V / eta_rev
+    // => eta_rev = eta * (T_rev / T_fwd)
+    
+    const eta_eff = isForward ? t.eta : (t.eta * t.T_reverse_max / t.T_forward_max);
+
+    if (eta_eff > 1e-6) {
+      P_est = (Tact * Veff) / eta_eff;
       P_est = Math.min(P_est, t.P_cont);
     }
 
@@ -1397,7 +1504,7 @@ function toggleSettingsPanel() {
       inputs.T_forward_max.value(BOAT_CONFIG.thrusters[idx].T_forward_max.toString());
       inputs.T_reverse_max.value(BOAT_CONFIG.thrusters[idx].T_reverse_max.toString());
       inputs.eta.value(BOAT_CONFIG.thrusters[idx].eta.toString());
-      inputs.forwardSign.selected(BOAT_CONFIG.thrusters[idx].forwardSign === 1 ? 'Forward = +1' : 'Forward = -1');
+      inputs.forwardSign.value(BOAT_CONFIG.thrusters[idx].forwardSign.toString());
       inputs.T_forward_max.show();
       inputs.T_reverse_max.show();
       inputs.eta.show();
@@ -1409,75 +1516,7 @@ function toggleSettingsPanel() {
       inputs.forwardSign.hide();
     }
   });
-  BOAT_CONFIG.thrusters.forEach((t, idx) => {
-    const inputs = {
-      T_forward_max: createInput(t.T_forward_max.toString()),
-      T_reverse_max: createInput(t.T_reverse_max.toString()),
-      eta: createInput(t.eta.toString()),
-      forwardSign: createSelect()
-    };
-    // Forward direction select
-    inputs.forwardSign.option('Forward = +1');
-    inputs.forwardSign.option('Forward = -1');
-    inputs.forwardSign.selected(t.forwardSign === 1 ? 'Forward = +1' : 'Forward = -1');
 
-    // Position will be set in drawSettingsPanel
-    inputs.T_forward_max.size(80);
-    inputs.T_reverse_max.size(80);
-    inputs.eta.size(80);
-    inputs.forwardSign.size(120);
-
-    // Style inputs for visibility
-    [inputs.T_forward_max, inputs.T_reverse_max, inputs.eta].forEach(inp => {
-      inp.style('padding', '6px');
-      inp.style('font-size', '14px');
-      inp.style('background', '#ffffff');
-      inp.style('border', '2px solid #4a90e2');
-      inp.style('border-radius', '4px');
-      inp.style('color', '#000000');
-      inp.style('z-index', '1000');
-      inp.style('position', 'absolute');
-      inp.attribute('type', 'number');
-    });
-    inputs.T_forward_max.attribute('step', '10');
-    inputs.T_reverse_max.attribute('step', '10');
-    inputs.eta.attribute('step', '0.01');
-    inputs.forwardSign.style('font-size', '14px');
-    inputs.forwardSign.style('z-index', '1000');
-    inputs.forwardSign.style('position', 'absolute');
-
-    inputs.T_forward_max.hide();
-    inputs.T_reverse_max.hide();
-    inputs.eta.hide();
-    inputs.forwardSign.hide();
-
-    // Update config on change
-    inputs.T_forward_max.input(() => {
-      const val = parseFloat(inputs.T_forward_max.value());
-      if (!isNaN(val) && val > 0) {
-        BOAT_CONFIG.thrusters[idx].T_forward_max = val;
-        recalculateAllocator();
-      }
-    });
-    inputs.T_reverse_max.input(() => {
-      const val = parseFloat(inputs.T_reverse_max.value());
-      if (!isNaN(val) && val > 0) {
-        BOAT_CONFIG.thrusters[idx].T_reverse_max = val;
-        recalculateAllocator();
-      }
-    });
-    inputs.eta.input(() => {
-      const val = parseFloat(inputs.eta.value());
-      if (!isNaN(val) && val > 0 && val <= 1) {
-        BOAT_CONFIG.thrusters[idx].eta = val;
-      }
-    });
-    inputs.forwardSign.changed(() => {
-      BOAT_CONFIG.thrusters[idx].forwardSign = inputs.forwardSign.value() === 'Forward = +1' ? 1 : -1;
-    });
-
-    thrusterInputs.push(inputs);
-  });
 }
 
 function drawSettingsPanel() {
@@ -1511,41 +1550,7 @@ function drawSettingsPanel() {
   fill(200, 220, 255);
   text("Edit thruster parameters below. Changes apply immediately.", panelX + panelW / 2, panelY + 50);
   
-  // Column headers
-  textAlign(LEFT, TOP);
-  textSize(13);
-  fill(180, 200, 220);
-  const headerY = panelY + 85;
-  text("Thruster", panelX + 30, headerY);
-  text("Max Thrust (N)", panelX + 180, headerY);
-  text("Efficiency (η)", panelX + 340, headerY);
-  
-  // Thruster rows
-  BOAT_CONFIG.thrusters.forEach((t, idx) => {
-    const rowY = panelY + 120 + idx * 80;
-    
-    // Thruster name
-    textSize(15);
-    fill(255, 255, 255);
-    textAlign(LEFT, TOP);
-    text(t.name, panelX + 30, rowY + 8);
-    
-    // Labels for inputs
-    textSize(11);
-    fill(180, 200, 220);
-    text("Forward/Reverse:", panelX + 180, rowY - 5);
-    text("Motor efficiency:", panelX + 340, rowY - 5);
-    
-    // Position input fields
-    thrusterInputs[idx].T_bollard_max.position(panelX + 180, rowY + 15);
-    thrusterInputs[idx].eta.position(panelX + 340, rowY + 15);
-    
-    // Current values hint
-    textSize(10);
-    fill(150, 170, 190);
-    text(`Range: 100-5000 N`, panelX + 180, rowY + 45);
-    text(`Range: 0.1-1.0`, panelX + 340, rowY + 45);
-  });
+  // (Removed duplicate column headers and thruster rows)
   
   // Column headers
   textAlign(LEFT, TOP);
@@ -1592,6 +1597,68 @@ function drawSettingsPanel() {
     text(`-1: Forward = -cmd`, panelX + 510, rowY + 60);
   });
 
+  // Close instruction
+  textSize(13);
+  textAlign(CENTER, TOP);
+  fill(200, 220, 255);
+  text("Click the button again or press ESC to close", panelX + panelW / 2, panelY + panelH - 35);
+
+  pop();
+}
+
+function createThrusterInputs() {
+  const inputStyle = (input) => {
+    input.style('padding', '6px');
+    input.style('font-size', '14px');
+    input.style('background', '#ffffff');
+    input.style('border', '2px solid #4a90e2');
+    input.style('border-radius', '4px');
+    input.style('color', '#000000');
+    input.style('z-index', '1000');
+    input.style('position', 'absolute');
+    input.attribute('type', 'number');
+    input.attribute('step', '0.1');
+    input.size(80);
+    input.hide();
+  };
+
+  thrusterInputs = BOAT_CONFIG.thrusters.map((t, i) => {
+    // T_forward_max
+    const T_forward_max = createInput(t.T_forward_max.toString());
+    inputStyle(T_forward_max);
+    T_forward_max.input(() => {
+      const val = parseFloat(T_forward_max.value());
+      if (!isNaN(val) && val > 0) BOAT_CONFIG.thrusters[i].T_forward_max = val;
+    });
+
+    // T_reverse_max
+    const T_reverse_max = createInput(t.T_reverse_max.toString());
+    inputStyle(T_reverse_max);
+    T_reverse_max.input(() => {
+      const val = parseFloat(T_reverse_max.value());
+      if (!isNaN(val) && val > 0) BOAT_CONFIG.thrusters[i].T_reverse_max = val;
+    });
+
+    // Efficiency (eta)
+    const eta = createInput(t.eta.toString());
+    inputStyle(eta);
+    eta.input(() => {
+      const val = parseFloat(eta.value());
+      if (!isNaN(val) && val > 0 && val <= 1) BOAT_CONFIG.thrusters[i].eta = val;
+    });
+
+    // Forward Sign
+    const forwardSign = createInput(t.forwardSign.toString());
+    inputStyle(forwardSign);
+    forwardSign.input(() => {
+      const val = parseFloat(forwardSign.value());
+      if (!isNaN(val) && (val === 1 || val === -1)) BOAT_CONFIG.thrusters[i].forwardSign = val;
+    });
+
+    return { T_forward_max, T_reverse_max, eta, forwardSign };
+  });
+}
+
 function toggleVesselSettingsPanel() {
   vesselSettingsPanelOpen = !vesselSettingsPanelOpen;
   
@@ -1608,6 +1675,8 @@ function toggleVesselSettingsPanel() {
       else if (key === 'A_side') vesselInputs[key].value(BOAT_CONFIG.wind.A_side.toString());
       else if (key === 'Cd_front') vesselInputs[key].value(BOAT_CONFIG.wind.Cd_front.toString());
       else if (key === 'Cd_side') vesselInputs[key].value(BOAT_CONFIG.wind.Cd_side.toString());
+      else if (key === 'cp_x') vesselInputs[key].value(BOAT_CONFIG.wind.cp_x.toString());
+      else if (key === 'mass') vesselInputs[key].value(BOAT_CONFIG.mass.toString());
     } else {
       vesselInputs[key].hide();
     }
@@ -1615,6 +1684,7 @@ function toggleVesselSettingsPanel() {
   
   // Update button text
   vesselSettingsButton.html(vesselSettingsPanelOpen ? "✕ Close Vessel Settings" : "🚤 Vessel Settings");
+pop(); // Restore drawing state
 }
 
 function createVesselInputs() {
@@ -1690,6 +1760,22 @@ function createVesselInputs() {
     const val = parseFloat(vesselInputs.Cd_side.value());
     if (!isNaN(val) && val > 0 && val <= 3.0) BOAT_CONFIG.wind.Cd_side = val;
   });
+
+  // Center of pressure (Wind)
+  vesselInputs.cp_x = createInput(BOAT_CONFIG.wind.cp_x.toString());
+  inputStyle(vesselInputs.cp_x);
+  vesselInputs.cp_x.input(() => {
+    const val = parseFloat(vesselInputs.cp_x.value());
+    if (!isNaN(val)) BOAT_CONFIG.wind.cp_x = val;
+  });
+
+  // Mass
+  vesselInputs.mass = createInput(BOAT_CONFIG.mass.toString());
+  inputStyle(vesselInputs.mass);
+  vesselInputs.mass.input(() => {
+    const val = parseFloat(vesselInputs.mass.value());
+    if (!isNaN(val) && val > 0) BOAT_CONFIG.mass = val;
+  });
 }
 
 function drawVesselSettingsPanel() {
@@ -1702,7 +1788,7 @@ function drawVesselSettingsPanel() {
   
   // Settings panel (larger to fit more inputs)
   const panelW = 700;
-  const panelH = 520;
+  const panelH = 640;
   const panelX = (width - panelW) / 2;
   const panelY = (height - panelH) / 2;
   
@@ -1724,13 +1810,33 @@ function drawVesselSettingsPanel() {
   text("Edit vessel parameters affecting drag and wind forces. Changes apply immediately.", panelX + panelW / 2, panelY + 50);
   
   textAlign(LEFT, TOP);
-  
-  // === HYDRO DRAG SECTION ===
+
+  // === GENERAL SECTION ===
   textSize(16);
   fill(255, 220, 100);
-  text("Water Drag Parameters", panelX + 30, panelY + 85);
+  text("General Properties", panelX + 30, panelY + 85);
+
+  const genY = panelY + 115;
   
-  const hydroY = panelY + 115;
+  // Mass
+  textSize(14);
+  fill(255);
+  text("Vessel Mass", panelX + 30, genY);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Total displacement (kg)", panelX + 30, genY + 20);
+  vesselInputs.mass.position(panelX + 30, genY + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Affects acceleration/inertia", panelX + 120, genY + 42);
+  
+  // === HYDRO DRAG SECTION ===
+  const hydroSectionY = genY + 80;
+  textSize(16);
+  fill(255, 220, 100);
+  text("Water Drag Parameters", panelX + 30, hydroSectionY);
+  
+  const hydroY = hydroSectionY + 30;
   const rowH = 70;
   
   // Wetted surface area
@@ -1838,6 +1944,19 @@ function drawVesselSettingsPanel() {
   textSize(10);
   fill(150, 170, 190);
   text("Range: 0.5-2.5", panelX + 460, windRow2Y + 42);
+
+  // Wind Center of Pressure
+  const windRow3Y = windRow2Y + rowH;
+  textSize(14);
+  fill(255);
+  text("L. Center of Pressure (cp_x)", panelX + 30, windRow3Y);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Aerodynamic center relative to dead center (m)", panelX + 30, windRow3Y + 20);
+  vesselInputs.cp_x.position(panelX + 30, windRow3Y + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("(+) = Forward (Weather Helm), (-) = Aft (Lee Helm)", panelX + 120, windRow3Y + 42);
   
   // Close instruction
   textSize(13);
