@@ -283,13 +283,16 @@ const BOAT_CONFIG = {
   // Thrusters (power-limited)
   thrusters: [
     { name:"Bow",       x:  1.387, y:  0.000, angle:  90,
-      P_cont: 2000, P_peak: 3700, eta: 0.35, T_bollard_max: 1200 },
+      P_cont: 2000, P_peak: 3700, eta: 0.35,
+      T_forward_max: 1200, T_reverse_max: 900, forwardSign: 1 },
 
     { name:"Port",      x: -2.555, y:  0.753, angle:  31.5,
-      P_cont: 2000, P_peak: 3700, eta: 0.35, T_bollard_max: 1200 },
+      P_cont: 2000, P_peak: 3700, eta: 0.35,
+      T_forward_max: 1200, T_reverse_max: 900, forwardSign: 1 },
 
     { name:"Starboard", x: -2.555, y: -0.753, angle: -31.5,
-      P_cont: 2000, P_peak: 3700, eta: 0.35, T_bollard_max: 1200 },
+      P_cont: 2000, P_peak: 3700, eta: 0.35,
+      T_forward_max: 1200, T_reverse_max: 900, forwardSign: 1 },
   ]
 };
 
@@ -352,11 +355,14 @@ let windDirectionDeg = 90;    // deg, 0=→, 90=↓ (default)    // deg, 0=→, 
 let windSpeedSlider, windDirSlider;
 let digitalAnchorToggle;
 let settingsButton;
+let vesselSettingsButton;
 let modeText = "";
 
 // Settings panel state
 let settingsPanelOpen = false;
 let thrusterInputs = [];
+let vesselSettingsPanelOpen = false;
+let vesselInputs = {};
 
 // Dock metrics for UI
 let lastDockMetrics = {
@@ -472,7 +478,8 @@ function thrustLimitForThruster(t, speed_mps, usePeak = false) {
   const P = usePeak ? t.P_peak : t.P_cont; // W
   const Vmin = 0.6;                        // m/s slip floor
   const T_power = (t.eta * P) / Math.max(speed_mps, Vmin);
-  return Math.min(T_power, t.T_bollard_max);
+  // Return all relevant values for caller to select
+  return { T_power, T_forward_max: t.T_forward_max, T_reverse_max: t.T_reverse_max, forwardSign: t.forwardSign };
 }
 
 // ---------------- CONTROL ALLOCATION ----------------
@@ -666,8 +673,17 @@ function setup() {
   settingsButton.style("font-size", "14px");
   settingsButton.style("cursor", "pointer");
 
+  // Vessel settings button
+  vesselSettingsButton = createButton("🚤 Vessel Settings");
+  vesselSettingsButton.position(20, 290);
+  vesselSettingsButton.mousePressed(toggleVesselSettingsPanel);
+  vesselSettingsButton.style("padding", "8px 16px");
+  vesselSettingsButton.style("font-size", "14px");
+  vesselSettingsButton.style("cursor", "pointer");
+
   // Create thruster input fields (initially hidden)
   createThrusterInputs();
+  createVesselInputs();
 }
 
 function positionWindUI() {
@@ -774,6 +790,11 @@ function drawKeyboardHelp() {
   if (settingsPanelOpen) {
     drawSettingsPanel();
   }
+  
+  // Draw vessel settings panel if open
+  if (vesselSettingsPanelOpen) {
+    drawVesselSettingsPanel();
+  }
 }
 
 // ---------------- PHYSICS ----------------
@@ -786,8 +807,11 @@ function updatePhysics(dt) {
   // (1) Thrusters
   BOAT_CONFIG.thrusters.forEach((t, i) => {
     const cmd = clamp(boatState.thrusterCmd[i], -1, 1);
-    const Tmax = thrustLimitForThruster(t, speed, false);
-    const F = Tmax * cmd;
+    const thrustInfo = thrustLimitForThruster(t, speed, false);
+    // Determine if command is forward or reverse
+    const isForward = (cmd * t.forwardSign) > 0;
+    const Tmax = isForward ? thrustInfo.T_forward_max : thrustInfo.T_reverse_max;
+    const F = Math.min(thrustInfo.T_power, Tmax) * cmd;
 
     const worldAngle = boatState.heading + radians(t.angle);
     const fx = Math.cos(worldAngle) * F;
@@ -1366,71 +1390,99 @@ function windowResized() {
 function toggleSettingsPanel() {
   settingsPanelOpen = !settingsPanelOpen;
   
-  // Show/hide input fields
-  thrusterInputs.forEach(inputs => {
-    inputs.forEach(inp => {
-      if (settingsPanelOpen) {
-        inp.show();
-      } else {
-        inp.hide();
-      }
-    });
+  // Show/hide input fields and update values
+  thrusterInputs.forEach((inputs, idx) => {
+    if (settingsPanelOpen) {
+      // Update input values to reflect current config
+      inputs.T_forward_max.value(BOAT_CONFIG.thrusters[idx].T_forward_max.toString());
+      inputs.T_reverse_max.value(BOAT_CONFIG.thrusters[idx].T_reverse_max.toString());
+      inputs.eta.value(BOAT_CONFIG.thrusters[idx].eta.toString());
+      inputs.forwardSign.selected(BOAT_CONFIG.thrusters[idx].forwardSign === 1 ? 'Forward = +1' : 'Forward = -1');
+      inputs.T_forward_max.show();
+      inputs.T_reverse_max.show();
+      inputs.eta.show();
+      inputs.forwardSign.show();
+    } else {
+      inputs.T_forward_max.hide();
+      inputs.T_reverse_max.hide();
+      inputs.eta.hide();
+      inputs.forwardSign.hide();
+    }
   });
-  
-  // Update button text
-  settingsButton.html(settingsPanelOpen ? "✕ Close Settings" : "⚙️ Thruster Settings");
-}
-
-function createThrusterInputs() {
   BOAT_CONFIG.thrusters.forEach((t, idx) => {
     const inputs = {
-      T_bollard_max: createInput(t.T_bollard_max.toString()),
-      eta: createInput(t.eta.toString())
+      T_forward_max: createInput(t.T_forward_max.toString()),
+      T_reverse_max: createInput(t.T_reverse_max.toString()),
+      eta: createInput(t.eta.toString()),
+      forwardSign: createSelect()
     };
-    
+    // Forward direction select
+    inputs.forwardSign.option('Forward = +1');
+    inputs.forwardSign.option('Forward = -1');
+    inputs.forwardSign.selected(t.forwardSign === 1 ? 'Forward = +1' : 'Forward = -1');
+
     // Position will be set in drawSettingsPanel
-    inputs.T_bollard_max.size(80);
+    inputs.T_forward_max.size(80);
+    inputs.T_reverse_max.size(80);
     inputs.eta.size(80);
-    
+    inputs.forwardSign.size(120);
+
     // Style inputs for visibility
-    inputs.T_bollard_max.style('padding', '6px');
-    inputs.T_bollard_max.style('font-size', '14px');
-    inputs.T_bollard_max.style('background', '#ffffff');
-    inputs.T_bollard_max.style('border', '2px solid #4a90e2');
-    inputs.T_bollard_max.style('border-radius', '4px');
-    inputs.T_bollard_max.style('color', '#000000');
-    
-    inputs.eta.style('padding', '6px');
-    inputs.eta.style('font-size', '14px');
-    inputs.eta.style('background', '#ffffff');
-    inputs.eta.style('border', '2px solid #4a90e2');
-    inputs.eta.style('border-radius', '4px');
-    inputs.eta.style('color', '#000000');
-    
-    inputs.T_bollard_max.hide();
+    [inputs.T_forward_max, inputs.T_reverse_max, inputs.eta].forEach(inp => {
+      inp.style('padding', '6px');
+      inp.style('font-size', '14px');
+      inp.style('background', '#ffffff');
+      inp.style('border', '2px solid #4a90e2');
+      inp.style('border-radius', '4px');
+      inp.style('color', '#000000');
+      inp.style('z-index', '1000');
+      inp.style('position', 'absolute');
+      inp.attribute('type', 'number');
+    });
+    inputs.T_forward_max.attribute('step', '10');
+    inputs.T_reverse_max.attribute('step', '10');
+    inputs.eta.attribute('step', '0.01');
+    inputs.forwardSign.style('font-size', '14px');
+    inputs.forwardSign.style('z-index', '1000');
+    inputs.forwardSign.style('position', 'absolute');
+
+    inputs.T_forward_max.hide();
+    inputs.T_reverse_max.hide();
     inputs.eta.hide();
-    
+    inputs.forwardSign.hide();
+
     // Update config on change
-    inputs.T_bollard_max.input(() => {
-      const val = parseFloat(inputs.T_bollard_max.value());
+    inputs.T_forward_max.input(() => {
+      const val = parseFloat(inputs.T_forward_max.value());
       if (!isNaN(val) && val > 0) {
-        BOAT_CONFIG.thrusters[idx].T_bollard_max = val;
+        BOAT_CONFIG.thrusters[idx].T_forward_max = val;
         recalculateAllocator();
       }
     });
-    
+    inputs.T_reverse_max.input(() => {
+      const val = parseFloat(inputs.T_reverse_max.value());
+      if (!isNaN(val) && val > 0) {
+        BOAT_CONFIG.thrusters[idx].T_reverse_max = val;
+        recalculateAllocator();
+      }
+    });
     inputs.eta.input(() => {
       const val = parseFloat(inputs.eta.value());
       if (!isNaN(val) && val > 0 && val <= 1) {
         BOAT_CONFIG.thrusters[idx].eta = val;
       }
     });
-    
+    inputs.forwardSign.changed(() => {
+      BOAT_CONFIG.thrusters[idx].forwardSign = inputs.forwardSign.value() === 'Forward = +1' ? 1 : -1;
+    });
+
     thrusterInputs.push(inputs);
   });
 }
 
 function drawSettingsPanel() {
+  push(); // Save drawing state
+  
   // Semi-transparent overlay
   fill(0, 0, 0, 150);
   noStroke();
@@ -1495,37 +1547,303 @@ function drawSettingsPanel() {
     text(`Range: 0.1-1.0`, panelX + 340, rowY + 45);
   });
   
+  // Column headers
+  textAlign(LEFT, TOP);
+  textSize(13);
+  fill(180, 200, 220);
+  const headerY = panelY + 85;
+  text("Thruster", panelX + 30, headerY);
+  text("Forward Max (N)", panelX + 150, headerY);
+  text("Reverse Max (N)", panelX + 270, headerY);
+  text("Efficiency (η)", panelX + 390, headerY);
+  text("Forward Dir", panelX + 510, headerY);
+
+  // Thruster rows
+  BOAT_CONFIG.thrusters.forEach((t, idx) => {
+    const rowY = panelY + 120 + idx * 80;
+
+    // Thruster name
+    textSize(15);
+    fill(255, 255, 255);
+    textAlign(LEFT, TOP);
+    text(t.name, panelX + 30, rowY + 8);
+
+    // Labels for inputs
+    textSize(11);
+    fill(180, 200, 220);
+    text("Forward:", panelX + 150, rowY - 5);
+    text("Reverse:", panelX + 270, rowY - 5);
+    text("Motor efficiency:", panelX + 390, rowY - 5);
+    text("Direction:", panelX + 510, rowY - 5);
+
+    // Position input fields
+    thrusterInputs[idx].T_forward_max.position(panelX + 150, rowY + 15);
+    thrusterInputs[idx].T_reverse_max.position(panelX + 270, rowY + 15);
+    thrusterInputs[idx].eta.position(panelX + 390, rowY + 15);
+    thrusterInputs[idx].forwardSign.position(panelX + 510, rowY + 15);
+
+    // Current values hint
+    textSize(10);
+    fill(150, 170, 190);
+    text(`Range: 100-5000 N`, panelX + 150, rowY + 45);
+    text(`Range: 100-5000 N`, panelX + 270, rowY + 45);
+    text(`Range: 0.1-1.0`, panelX + 390, rowY + 45);
+    text(`+1: Forward = +cmd`, panelX + 510, rowY + 45);
+    text(`-1: Forward = -cmd`, panelX + 510, rowY + 60);
+  });
+
+function toggleVesselSettingsPanel() {
+  vesselSettingsPanelOpen = !vesselSettingsPanelOpen;
+  
+  // Show/hide input fields and update values
+  Object.keys(vesselInputs).forEach(key => {
+    if (vesselSettingsPanelOpen) {
+      vesselInputs[key].show();
+      // Update values from current config
+      if (key === 'Swet') vesselInputs[key].value(BOAT_CONFIG.hydro.Swet.toString());
+      else if (key === 'A_lat') vesselInputs[key].value(BOAT_CONFIG.hydro.A_lat.toString());
+      else if (key === 'formFactor') vesselInputs[key].value(BOAT_CONFIG.hydro.formFactor.toString());
+      else if (key === 'Cd_lat') vesselInputs[key].value(BOAT_CONFIG.hydro.Cd_lat.toString());
+      else if (key === 'A_front') vesselInputs[key].value(BOAT_CONFIG.wind.A_front.toString());
+      else if (key === 'A_side') vesselInputs[key].value(BOAT_CONFIG.wind.A_side.toString());
+      else if (key === 'Cd_front') vesselInputs[key].value(BOAT_CONFIG.wind.Cd_front.toString());
+      else if (key === 'Cd_side') vesselInputs[key].value(BOAT_CONFIG.wind.Cd_side.toString());
+    } else {
+      vesselInputs[key].hide();
+    }
+  });
+  
+  // Update button text
+  vesselSettingsButton.html(vesselSettingsPanelOpen ? "✕ Close Vessel Settings" : "🚤 Vessel Settings");
+}
+
+function createVesselInputs() {
+  const inputStyle = (input) => {
+    input.style('padding', '6px');
+    input.style('font-size', '14px');
+    input.style('background', '#ffffff');
+    input.style('border', '2px solid #4a90e2');
+    input.style('border-radius', '4px');
+    input.style('color', '#000000');
+    input.style('z-index', '1000');
+    input.style('position', 'absolute');
+    input.attribute('type', 'number');
+    input.attribute('step', '0.1');
+    input.size(80);
+    input.hide();
+  };
+  
+  // Hydro drag inputs
+  vesselInputs.Swet = createInput(BOAT_CONFIG.hydro.Swet.toString());
+  inputStyle(vesselInputs.Swet);
+  vesselInputs.Swet.input(() => {
+    const val = parseFloat(vesselInputs.Swet.value());
+    if (!isNaN(val) && val > 0) BOAT_CONFIG.hydro.Swet = val;
+  });
+  
+  vesselInputs.A_lat = createInput(BOAT_CONFIG.hydro.A_lat.toString());
+  inputStyle(vesselInputs.A_lat);
+  vesselInputs.A_lat.input(() => {
+    const val = parseFloat(vesselInputs.A_lat.value());
+    if (!isNaN(val) && val > 0) BOAT_CONFIG.hydro.A_lat = val;
+  });
+  
+  vesselInputs.formFactor = createInput(BOAT_CONFIG.hydro.formFactor.toString());
+  inputStyle(vesselInputs.formFactor);
+  vesselInputs.formFactor.input(() => {
+    const val = parseFloat(vesselInputs.formFactor.value());
+    if (!isNaN(val) && val >= 1.0 && val <= 2.0) BOAT_CONFIG.hydro.formFactor = val;
+  });
+  
+  vesselInputs.Cd_lat = createInput(BOAT_CONFIG.hydro.Cd_lat.toString());
+  inputStyle(vesselInputs.Cd_lat);
+  vesselInputs.Cd_lat.input(() => {
+    const val = parseFloat(vesselInputs.Cd_lat.value());
+    if (!isNaN(val) && val > 0 && val <= 3.0) BOAT_CONFIG.hydro.Cd_lat = val;
+  });
+  
+  // Wind inputs
+  vesselInputs.A_front = createInput(BOAT_CONFIG.wind.A_front.toString());
+  inputStyle(vesselInputs.A_front);
+  vesselInputs.A_front.input(() => {
+    const val = parseFloat(vesselInputs.A_front.value());
+    if (!isNaN(val) && val > 0) BOAT_CONFIG.wind.A_front = val;
+  });
+  
+  vesselInputs.A_side = createInput(BOAT_CONFIG.wind.A_side.toString());
+  inputStyle(vesselInputs.A_side);
+  vesselInputs.A_side.input(() => {
+    const val = parseFloat(vesselInputs.A_side.value());
+    if (!isNaN(val) && val > 0) BOAT_CONFIG.wind.A_side = val;
+  });
+  
+  vesselInputs.Cd_front = createInput(BOAT_CONFIG.wind.Cd_front.toString());
+  inputStyle(vesselInputs.Cd_front);
+  vesselInputs.Cd_front.input(() => {
+    const val = parseFloat(vesselInputs.Cd_front.value());
+    if (!isNaN(val) && val > 0 && val <= 3.0) BOAT_CONFIG.wind.Cd_front = val;
+  });
+  
+  vesselInputs.Cd_side = createInput(BOAT_CONFIG.wind.Cd_side.toString());
+  inputStyle(vesselInputs.Cd_side);
+  vesselInputs.Cd_side.input(() => {
+    const val = parseFloat(vesselInputs.Cd_side.value());
+    if (!isNaN(val) && val > 0 && val <= 3.0) BOAT_CONFIG.wind.Cd_side = val;
+  });
+}
+
+function drawVesselSettingsPanel() {
+  push(); // Save drawing state
+  
+  // Semi-transparent overlay
+  fill(0, 0, 0, 150);
+  noStroke();
+  rect(0, 0, width, height);
+  
+  // Settings panel (larger to fit more inputs)
+  const panelW = 700;
+  const panelH = 520;
+  const panelX = (width - panelW) / 2;
+  const panelY = (height - panelH) / 2;
+  
+  fill(40, 50, 65);
+  stroke(100, 120, 150);
+  strokeWeight(2);
+  rect(panelX, panelY, panelW, panelH, 12);
+  
+  // Title
+  fill(255);
+  noStroke();
+  textSize(20);
+  textAlign(CENTER, TOP);
+  text("Vessel Drag & Wind Settings", panelX + panelW / 2, panelY + 20);
+  
+  // Instructions
+  textSize(12);
+  fill(200, 220, 255);
+  text("Edit vessel parameters affecting drag and wind forces. Changes apply immediately.", panelX + panelW / 2, panelY + 50);
+  
+  textAlign(LEFT, TOP);
+  
+  // === HYDRO DRAG SECTION ===
+  textSize(16);
+  fill(255, 220, 100);
+  text("Water Drag Parameters", panelX + 30, panelY + 85);
+  
+  const hydroY = panelY + 115;
+  const rowH = 70;
+  
+  // Wetted surface area
+  textSize(14);
+  fill(255);
+  text("Wetted Surface Area (S_wet)", panelX + 30, hydroY);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Surface area in contact with water (m²)", panelX + 30, hydroY + 20);
+  vesselInputs.Swet.position(panelX + 30, hydroY + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 5-50 m²", panelX + 120, hydroY + 42);
+  
+  // Lateral projected area
+  textSize(14);
+  fill(255);
+  text("Lateral Projected Area (A_lat)", panelX + 370, hydroY);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Underwater side profile area (m²)", panelX + 370, hydroY + 20);
+  vesselInputs.A_lat.position(panelX + 370, hydroY + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 1-20 m²", panelX + 460, hydroY + 42);
+  
+  // Form factor
+  const row2Y = hydroY + rowH;
+  textSize(14);
+  fill(255);
+  text("Form Factor (1+k)", panelX + 30, row2Y);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Hull shape resistance multiplier", panelX + 30, row2Y + 20);
+  vesselInputs.formFactor.position(panelX + 30, row2Y + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 1.0-2.0", panelX + 120, row2Y + 42);
+  
+  // Crossflow drag coefficient
+  textSize(14);
+  fill(255);
+  text("Crossflow Drag Coeff (C_d)", panelX + 370, row2Y);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Lateral drag coefficient", panelX + 370, row2Y + 20);
+  vesselInputs.Cd_lat.position(panelX + 370, row2Y + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 0.5-3.0", panelX + 460, row2Y + 42);
+  
+  // === WIND SECTION ===
+  const windSectionY = row2Y + rowH + 15;
+  textSize(16);
+  fill(255, 220, 100);
+  text("Wind Force Parameters", panelX + 30, windSectionY);
+  
+  const windY = windSectionY + 30;
+  
+  // Front view area
+  textSize(14);
+  fill(255);
+  text("Front View Area (A_front)", panelX + 30, windY);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Frontal projected area (m²)", panelX + 30, windY + 20);
+  vesselInputs.A_front.position(panelX + 30, windY + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 0.5-10 m²", panelX + 120, windY + 42);
+  
+  // Side view area
+  textSize(14);
+  fill(255);
+  text("Side View Area (A_side)", panelX + 370, windY);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Side projected area (m²)", panelX + 370, windY + 20);
+  vesselInputs.A_side.position(panelX + 370, windY + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 2-20 m²", panelX + 460, windY + 42);
+  
+  // Front drag coefficient
+  const windRow2Y = windY + rowH;
+  textSize(14);
+  fill(255);
+  text("Front Wind Drag Coeff (C_d)", panelX + 30, windRow2Y);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Head/tail wind drag coefficient", panelX + 30, windRow2Y + 20);
+  vesselInputs.Cd_front.position(panelX + 30, windRow2Y + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 0.3-2.0", panelX + 120, windRow2Y + 42);
+  
+  // Side drag coefficient
+  textSize(14);
+  fill(255);
+  text("Side Wind Drag Coeff (C_d)", panelX + 370, windRow2Y);
+  textSize(11);
+  fill(180, 200, 220);
+  text("Beam wind drag coefficient", panelX + 370, windRow2Y + 20);
+  vesselInputs.Cd_side.position(panelX + 370, windRow2Y + 40);
+  textSize(10);
+  fill(150, 170, 190);
+  text("Range: 0.5-2.5", panelX + 460, windRow2Y + 42);
+  
   // Close instruction
   textSize(13);
   textAlign(CENTER, TOP);
   fill(200, 220, 255);
   text("Click the button again or press ESC to close", panelX + panelW / 2, panelY + panelH - 35);
-}
-
-function keyPressed() {
-  // Close settings panel on ESC
-  if (keyCode === 27 && settingsPanelOpen) { // ESC key
-    toggleSettingsPanel();
-    return;
-  }
   
-  const k = String(key).toLowerCase();
-  if (k === 'w') keyboardState.w = true;
-  if (k === 'a') keyboardState.a = true;
-  if (k === 's') keyboardState.s = true;
-  if (k === 'd') keyboardState.d = true;
-  if (k === 'j') keyboardState.j = true;
-  if (k === 'k') keyboardState.k = true;
-  if (keyCode === 32) keyboardState.space = true;
-}
-
-function keyReleased() {
-  const k = String(key).toLowerCase();
-  if (k === 'w') keyboardState.w = false;
-  if (k === 'a') keyboardState.a = false;
-  if (k === 's') keyboardState.s = false;
-  if (k === 'd') keyboardState.d = false;
-  if (k === 'j') keyboardState.j = false;
-  if (k === 'k') keyboardState.k = false;
-  if (keyCode === 32) keyboardState.space = false;
+  pop(); // Restore drawing state
 }
