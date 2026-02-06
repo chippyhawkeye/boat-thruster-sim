@@ -1,18 +1,15 @@
-// Updated sketch.js
-
 function setup() {
-    createCanvas(800, 600);
-
-    // Removed manual control sliders and corresponding elements
-    // Removed thrSliders and linkPS variables
-
-    
+  createCanvas(800, 600);
+  // no manual thruster control sliders
+  // Initialize other UI components, if any
 }
 
 function draw() {
-    background(220);
-
-    // Other existing draw logic
+  background(200);
+  // Update thruster visuals based on state
+  // No manual controls for sliders or checkbox
 }
 
-// Any additional required code that uses manual sliders has been removed.
+// Add the rest of the necessary code without thrSliders and linkPS related variables or functionalities.
+
+// Additional utility functions or any other existing logic can stay as it is.
