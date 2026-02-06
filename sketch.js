@@ -1528,8 +1528,8 @@ function drawSettingsPanel() {
   rect(0, 0, width, height);
   
   // Settings panel
-  const panelW = 500;
-  const panelH = 420;
+  const panelW = 640;
+  const panelH = 480;
   const panelX = (width - panelW) / 2;
   const panelY = (height - panelH) / 2;
   
@@ -1565,7 +1565,7 @@ function drawSettingsPanel() {
 
   // Thruster rows
   BOAT_CONFIG.thrusters.forEach((t, idx) => {
-    const rowY = panelY + 120 + idx * 80;
+    const rowY = panelY + 120 + idx * 100;
 
     // Thruster name
     textSize(15);
@@ -1590,11 +1590,11 @@ function drawSettingsPanel() {
     // Current values hint
     textSize(10);
     fill(150, 170, 190);
-    text(`Range: 100-5000 N`, panelX + 150, rowY + 45);
-    text(`Range: 100-5000 N`, panelX + 270, rowY + 45);
-    text(`Range: 0.1-1.0`, panelX + 390, rowY + 45);
-    text(`+1: Forward = +cmd`, panelX + 510, rowY + 45);
-    text(`-1: Forward = -cmd`, panelX + 510, rowY + 60);
+    text(`Range: 100-5000 N`, panelX + 150, rowY + 55);
+    text(`Range: 100-5000 N`, panelX + 270, rowY + 55);
+    text(`Range: 0.1-1.0`, panelX + 390, rowY + 55);
+    text(`+1: Forward = +cmd`, panelX + 510, rowY + 55);
+    text(`-1: Forward = -cmd`, panelX + 510, rowY + 70);
   });
 
   // Close instruction
@@ -1618,7 +1618,7 @@ function createThrusterInputs() {
     input.style('position', 'absolute');
     input.attribute('type', 'number');
     input.attribute('step', '0.1');
-    input.size(80);
+    input.size(60);
     input.hide();
   };
 
@@ -1699,7 +1699,7 @@ function createVesselInputs() {
     input.style('position', 'absolute');
     input.attribute('type', 'number');
     input.attribute('step', '0.1');
-    input.size(80);
+    input.size(60);
     input.hide();
   };
   
@@ -1788,7 +1788,7 @@ function drawVesselSettingsPanel() {
   
   // Settings panel (larger to fit more inputs)
   const panelW = 700;
-  const panelH = 640;
+  const panelH = 780;
   const panelX = (width - panelW) / 2;
   const panelY = (height - panelH) / 2;
   
@@ -1831,13 +1831,13 @@ function drawVesselSettingsPanel() {
   text("Affects acceleration/inertia", panelX + 120, genY + 42);
   
   // === HYDRO DRAG SECTION ===
-  const hydroSectionY = genY + 80;
+  const hydroSectionY = genY + 100;
   textSize(16);
   fill(255, 220, 100);
   text("Water Drag Parameters", panelX + 30, hydroSectionY);
   
   const hydroY = hydroSectionY + 30;
-  const rowH = 70;
+  const rowH = 85;
   
   // Wetted surface area
   textSize(14);
