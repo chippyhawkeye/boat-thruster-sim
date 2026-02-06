@@ -293,6 +293,17 @@ const BOAT_CONFIG = {
   ]
 };
 
+// Keyboard input state
+const keyboardState = {
+  w: false,
+  a: false,
+  s: false,
+  d: false,
+  j: false,
+  k: false,
+  space: false
+};
+
 // Joystick authority (desired body forces/moment)
 const CONTROL_LIMITS = {
   Fx_max: 2500,  // N
@@ -340,7 +351,12 @@ let windDirectionDeg = 90;    // deg, 0=→, 90=↓ (default)    // deg, 0=→, 
 // UI elements
 let windSpeedSlider, windDirSlider;
 let digitalAnchorToggle;
+let settingsButton;
 let modeText = "";
+
+// Settings panel state
+let settingsPanelOpen = false;
+let thrusterInputs = [];
 
 // Dock metrics for UI
 let lastDockMetrics = {
@@ -538,6 +554,30 @@ function allocateThrusters(Fx_cmd, Fy_cmd, Tau_cmd) {
   return cmd.map(c => clamp(c, -1, 1));
 }
 
+// ---------------- KEYBOARD INPUT ----------------
+function readKeyboard() {
+  let fx = 0, fy = 0, yaw = 0;
+  
+  if (keyboardState.w) fx += 1;
+  if (keyboardState.s) fx -= 1;
+  if (keyboardState.d) fy += 1;
+  if (keyboardState.a) fy -= 1;
+  if (keyboardState.k) yaw += 1;
+  if (keyboardState.j) yaw -= 1;
+  
+  return { fx, fy, yaw };
+}
+
+// Merge keyboard and gamepad inputs (keyboard takes precedence if any key pressed)
+function readCombinedInput() {
+  const kbInput = readKeyboard();
+  const hasKeyboardInput = kbInput.fx !== 0 || kbInput.fy !== 0 || kbInput.yaw !== 0 || keyboardState.space;
+  if (hasKeyboardInput) {
+    return { ...kbInput, connected: true, axesCount: 3, source: 'keyboard', anchor: keyboardState.space };
+  }
+  return { ...readJoystick(), source: 'gamepad' };
+}
+
 // ---------------- JOYSTICK (GAMEPAD) ----------------
 // NOTE (per Chip): yaw axis is 5 (index 5)
 function readJoystick() {
@@ -617,6 +657,17 @@ function setup() {
   digitalAnchorToggle = createCheckbox("Digital Anchor (hold u,v,r = 0 when stick neutral)", false);
   digitalAnchorToggle.position(20, 215);
   digitalAnchorToggle.style("color", "#fff");
+
+  // Settings button
+  settingsButton = createButton("⚙️ Thruster Settings");
+  settingsButton.position(20, 250);
+  settingsButton.mousePressed(toggleSettingsPanel);
+  settingsButton.style("padding", "8px 16px");
+  settingsButton.style("font-size", "14px");
+  settingsButton.style("cursor", "pointer");
+
+  // Create thruster input fields (initially hidden)
+  createThrusterInputs();
 }
 
 function positionWindUI() {
@@ -637,7 +688,37 @@ function positionWindUI() {
 let prevAnchorEnabled = false;
 
 function draw() {
+
   background(20, 40, 60);
+
+  // --- Keyboard Controls Help ---
+  drawKeyboardHelp();
+// Draws keyboard control instructions on the screen
+function drawKeyboardHelp() {
+  const lines = [
+    'Keyboard Controls:',
+    '  W/S: Forward/Reverse thrust',
+    '  A/D: Rotate left/right (yaw)',
+    '  Q/E: Sway left/right (sideways thrust)',
+    '  SPACE: Digital anchor (hold to stop)',
+    '',
+    'Tip: Combine keys for complex maneuvers.'
+  ];
+  const lh = 18;
+  const blockHeight = lines.length * lh;
+  // Place block vertically centered, left side, but below top info panel (offset ~180px)
+  const y0 = Math.max(180, (height - blockHeight) / 2);
+  const x = 24;
+  push();
+  textAlign(LEFT, TOP);
+  textSize(15);
+  fill(255, 255, 220, 210);
+  noStroke();
+  for (let i = 0; i < lines.length; ++i) {
+    text(lines[i], x, y0 + i * lh);
+  }
+  pop();
+}
 
   // Draw dock first so boat overlays it
   drawDock();
@@ -649,8 +730,9 @@ function draw() {
   windSpeed = windSpeedSlider.value();
   windDirectionDeg = windDirSlider.value();
 
-  const joy = readJoystick();
-  const anchorEnabled = digitalAnchorToggle.checked();
+  const joy = readCombinedInput();
+  // Keyboard: SPACE bar acts as digital anchor
+  const anchorEnabled = joy.anchor !== undefined ? joy.anchor : digitalAnchorToggle.checked();
 
   if (anchorEnabled !== prevAnchorEnabled) resetAnchorIntegrators();
   prevAnchorEnabled = anchorEnabled;
@@ -687,6 +769,11 @@ function draw() {
   drawWindArrow();
   drawBoat();
   drawUI(debug, joy);
+  
+  // Draw settings panel if open
+  if (settingsPanelOpen) {
+    drawSettingsPanel();
+  }
 }
 
 // ---------------- PHYSICS ----------------
@@ -858,7 +945,8 @@ function drawBoat() {
       stroke(cmd > 0 ? color(255, 220, 80) : color(80, 200, 255));
       strokeWeight(3);
 
-      const sgn = cmd >= 0 ? 1 : -1;
+      // Reverse the direction: arrow points opposite to force
+      const sgn = cmd >= 0 ? -1 : 1;
       const x2 = px + Math.cos(dir) * len * sgn;
       const y2 = py + Math.sin(dir) * len * sgn;
       line(px, py, x2, y2);
@@ -1177,15 +1265,18 @@ function drawUI(debug, joy) {
   // Bottom-right docking metrics (always on)
   drawDockMetricsPanel();
 
-  // Tiny joystick line at bottom
+  // Bottom status line with input info
+  fill(255);
+  textSize(13);
+  
   if (joy && joy.connected) {
-    fill(255);
-    textSize(13);
-    text(`Joy: fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw(axis5) ${joy.yaw.toFixed(2)}  axes:${joy.axesCount}`, 20, height - 18);
+    if (joy.source === 'keyboard') {
+      text(`Keyboard: W/A/S/D for thrust, J/K for yaw | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
+    } else {
+      text(`Gamepad: fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw(axis5) ${joy.yaw.toFixed(2)}  axes:${joy.axesCount}`, 20, height - 18);
+    }
   } else {
-    fill(255);
-    textSize(13);
-    text("No gamepad detected. (Digital anchor only requires joystick + neutral stick.)", 20, height - 18);
+    text("Keyboard: W/S forward/back | A/D left/right | J/K yaw | or connect gamepad", 20, height - 18);
   }
 }
 
@@ -1270,4 +1361,171 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   positionWindUI();
   initDock();
+}
+
+function toggleSettingsPanel() {
+  settingsPanelOpen = !settingsPanelOpen;
+  
+  // Show/hide input fields
+  thrusterInputs.forEach(inputs => {
+    inputs.forEach(inp => {
+      if (settingsPanelOpen) {
+        inp.show();
+      } else {
+        inp.hide();
+      }
+    });
+  });
+  
+  // Update button text
+  settingsButton.html(settingsPanelOpen ? "✕ Close Settings" : "⚙️ Thruster Settings");
+}
+
+function createThrusterInputs() {
+  BOAT_CONFIG.thrusters.forEach((t, idx) => {
+    const inputs = {
+      T_bollard_max: createInput(t.T_bollard_max.toString()),
+      eta: createInput(t.eta.toString())
+    };
+    
+    // Position will be set in drawSettingsPanel
+    inputs.T_bollard_max.size(80);
+    inputs.eta.size(80);
+    
+    // Style inputs for visibility
+    inputs.T_bollard_max.style('padding', '6px');
+    inputs.T_bollard_max.style('font-size', '14px');
+    inputs.T_bollard_max.style('background', '#ffffff');
+    inputs.T_bollard_max.style('border', '2px solid #4a90e2');
+    inputs.T_bollard_max.style('border-radius', '4px');
+    inputs.T_bollard_max.style('color', '#000000');
+    
+    inputs.eta.style('padding', '6px');
+    inputs.eta.style('font-size', '14px');
+    inputs.eta.style('background', '#ffffff');
+    inputs.eta.style('border', '2px solid #4a90e2');
+    inputs.eta.style('border-radius', '4px');
+    inputs.eta.style('color', '#000000');
+    
+    inputs.T_bollard_max.hide();
+    inputs.eta.hide();
+    
+    // Update config on change
+    inputs.T_bollard_max.input(() => {
+      const val = parseFloat(inputs.T_bollard_max.value());
+      if (!isNaN(val) && val > 0) {
+        BOAT_CONFIG.thrusters[idx].T_bollard_max = val;
+        recalculateAllocator();
+      }
+    });
+    
+    inputs.eta.input(() => {
+      const val = parseFloat(inputs.eta.value());
+      if (!isNaN(val) && val > 0 && val <= 1) {
+        BOAT_CONFIG.thrusters[idx].eta = val;
+      }
+    });
+    
+    thrusterInputs.push(inputs);
+  });
+}
+
+function drawSettingsPanel() {
+  // Semi-transparent overlay
+  fill(0, 0, 0, 150);
+  noStroke();
+  rect(0, 0, width, height);
+  
+  // Settings panel
+  const panelW = 500;
+  const panelH = 420;
+  const panelX = (width - panelW) / 2;
+  const panelY = (height - panelH) / 2;
+  
+  fill(40, 50, 65);
+  stroke(100, 120, 150);
+  strokeWeight(2);
+  rect(panelX, panelY, panelW, panelH, 12);
+  
+  // Title
+  fill(255);
+  noStroke();
+  textSize(20);
+  textAlign(CENTER, TOP);
+  text("Thruster Settings", panelX + panelW / 2, panelY + 20);
+  
+  // Instructions
+  textSize(12);
+  fill(200, 220, 255);
+  text("Edit thruster parameters below. Changes apply immediately.", panelX + panelW / 2, panelY + 50);
+  
+  // Column headers
+  textAlign(LEFT, TOP);
+  textSize(13);
+  fill(180, 200, 220);
+  const headerY = panelY + 85;
+  text("Thruster", panelX + 30, headerY);
+  text("Max Thrust (N)", panelX + 180, headerY);
+  text("Efficiency (η)", panelX + 340, headerY);
+  
+  // Thruster rows
+  BOAT_CONFIG.thrusters.forEach((t, idx) => {
+    const rowY = panelY + 120 + idx * 80;
+    
+    // Thruster name
+    textSize(15);
+    fill(255, 255, 255);
+    textAlign(LEFT, TOP);
+    text(t.name, panelX + 30, rowY + 8);
+    
+    // Labels for inputs
+    textSize(11);
+    fill(180, 200, 220);
+    text("Forward/Reverse:", panelX + 180, rowY - 5);
+    text("Motor efficiency:", panelX + 340, rowY - 5);
+    
+    // Position input fields
+    thrusterInputs[idx].T_bollard_max.position(panelX + 180, rowY + 15);
+    thrusterInputs[idx].eta.position(panelX + 340, rowY + 15);
+    
+    // Current values hint
+    textSize(10);
+    fill(150, 170, 190);
+    text(`Range: 100-5000 N`, panelX + 180, rowY + 45);
+    text(`Range: 0.1-1.0`, panelX + 340, rowY + 45);
+  });
+  
+  // Close instruction
+  textSize(13);
+  textAlign(CENTER, TOP);
+  fill(200, 220, 255);
+  text("Click the button again or press ESC to close", panelX + panelW / 2, panelY + panelH - 35);
+}
+
+function keyPressed() {
+  // Close settings panel on ESC
+  if (keyCode === 27 && settingsPanelOpen) { // ESC key
+    toggleSettingsPanel();
+    return;
+  }
+  
+  const k = String(key).toLowerCase();
+  if (k === 'w') keyboardState.w = true;
+  if (k === 'a') keyboardState.a = true;
+  if (k === 's') keyboardState.s = true;
+  if (k === 'd') keyboardState.d = true;
+  if (k === 'j') keyboardState.j = true;
+  if (k === 'k') keyboardState.k = true;
+  if (keyCode === 32) keyboardState.space = true;
+}
+
+function keyReleased() {
+  const k = String(key).toLowerCase();
+  if (k === 'w') keyboardState.w = false;
+  if (k === 'a') keyboardState.a = false;
+  if (k === 's') keyboardState.s = false;
+  if (k === 'd') keyboardState.d = false;
+  if (k === 'j') keyboardState.j = false;
+  if (k === 'k') keyboardState.k = false;
+  if (keyCode === 32) keyboardState.space = false;
 }
