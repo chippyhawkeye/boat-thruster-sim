@@ -647,8 +647,14 @@ function readKeyboard() {
   return { fx, fy, yaw };
 }
 
-// Merge keyboard and gamepad inputs (keyboard takes precedence if any key pressed)
+// Merge keyboard, touch, and gamepad inputs (priority: Touch > Keyboard > Gamepad)
 function readCombinedInput() {
+  const touchInput = readTouch();
+  if (touchInput.active) {
+    // Touch overrides everything if active
+    return { ...touchInput, connected: true, axesCount: 3, source: 'touch', anchor: false };
+  }
+
   const kbInput = readKeyboard();
   const hasKeyboardInput = kbInput.fx !== 0 || kbInput.fy !== 0 || kbInput.yaw !== 0 || keyboardState.space;
   if (hasKeyboardInput) {
@@ -1351,18 +1357,27 @@ function drawArrow(x, y, ang, len) {
 }
 
 function drawUI(debug, joy) {
+    // Only show if this looks like a touch device
+    const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
+  // Draw virtual joysticks (if touch supported/active)
+  drawTouchJoysticks();
+
   // Top-left status panel
   const x0 = 20;
   const y0 = 20;
-  const w = 360;
+  // Responsive width for mobile
+  const w = Math.min(360, width - 40);
   const h = 178;
 
   noStroke();
   fill(0, 0, 0, 80);
   rect(x0, y0, w, h, 10);
 
+
   fill(255);
   textSize(14);
+  textAlign(LEFT, BASELINE);
 
   const speed = Math.hypot(boatState.vel.x, boatState.vel.y);
   const knots = speed * 1.94384;
@@ -1374,30 +1389,40 @@ function drawUI(debug, joy) {
   text(`Net |F|: ${debug.netF.toFixed(0)} N   Net τ: ${debug.netTorque.toFixed(0)} N·m`, x0 + 14, y); y += 20;
   text(`Hydro: Cf=${debug.hydroCf.toExponential(2)}  Re=${debug.hydroRe.toExponential(2)}`, x0 + 14, y);
 
-  // Thruster panel (bottom-left)
-  drawThrusterPanel();
+  // Thruster panel (bottom-left) -- Hide on small touch screens to avoid overlap
+  if (!isTouch || width > 600) {
+      drawThrusterPanel();
+  }
 
-  // Bottom-right docking metrics (always on)
-  drawDockMetricsPanel();
+  // Bottom-right docking metrics (always on) -- Hide on small touch screens to avoid overlap
+  if (!isTouch || width > 600) {
+      drawDockMetricsPanel();
+  }
 
   // Bottom status line with input info
   fill(255);
-  textSize(13);
+  textSize(Math.min(13, width / 40)); // Scale text for very narrow screens
   
   if (joy && joy.connected) {
     if (joy.source === 'keyboard') {
       text(`Keyboard: W/S surge, Q/E sway, A/D yaw | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
+    } else if (joy.source === 'touch') {
+       text(`Touch Input Active | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
     } else {
       text(`Gamepad: fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw(axis5) ${joy.yaw.toFixed(2)}  axes:${joy.axesCount}`, 20, height - 18);
     }
   } else {
-    text("Keyboard: W/S surge | Q/E sway | A/D yaw | or connect gamepad", 20, height - 18);
+     if (isTouch && width < 600) {
+         text("Use onscreen joysticks to move and turn", 20, height - 18);
+     } else {
+        text("Keyboard: W/S surge | Q/E sway | A/D yaw | or connect gamepad", 20, height - 18);
+     }
   }
 }
 
 function drawDockMetricsPanel() {
   const pad = 14;
-  const w = 280;
+  const w = Math.min(280, width - 40);
   const h = 86;
   const x0 = width - w - pad;
   const y0 = height - h - pad;
@@ -1424,7 +1449,7 @@ function drawDockMetricsPanel() {
 
 function drawThrusterPanel() {
   const x0 = 20;
-  const w = 360;
+  const w = Math.min(360, width - 40);
   const h = 170;
   // Pin near bottom-left, keep above bottom status line
   const y0 = Math.max(230, height - h - 40);
@@ -1530,8 +1555,9 @@ function drawSettingsPanel() {
   // Settings panel
   const panelW = 640;
   const panelH = 480;
-  const panelX = (width - panelW) / 2;
-  const panelY = (height - panelH) / 2;
+  // Ensure panel fits on screen even if window is narrow
+  const panelX = Math.max(10, (width - panelW) / 2);
+  const panelY = Math.max(10, (height - panelH) / 2);
   
   fill(40, 50, 65);
   stroke(100, 120, 150);
@@ -1684,7 +1710,6 @@ function toggleVesselSettingsPanel() {
   
   // Update button text
   vesselSettingsButton.html(vesselSettingsPanelOpen ? "✕ Close Vessel Settings" : "🚤 Vessel Settings");
-pop(); // Restore drawing state
 }
 
 function createVesselInputs() {
@@ -1778,6 +1803,7 @@ function createVesselInputs() {
   });
 }
 
+// ---------------- TOUCH CONTROLS ----------------
 function drawVesselSettingsPanel() {
   push(); // Save drawing state
   
@@ -1789,8 +1815,9 @@ function drawVesselSettingsPanel() {
   // Settings panel (larger to fit more inputs)
   const panelW = 700;
   const panelH = 780;
-  const panelX = (width - panelW) / 2;
-  const panelY = (height - panelH) / 2;
+  // Ensure panel fits on screen
+  const panelX = Math.max(10, (width - panelW) / 2);
+  const panelY = Math.max(10, (height - panelH) / 2);
   
   fill(40, 50, 65);
   stroke(100, 120, 150);
@@ -1877,7 +1904,6 @@ function drawVesselSettingsPanel() {
   text("Range: 1.0-2.0", panelX + 120, row2Y + 42);
   
   // Crossflow drag coefficient
-  textSize(14);
   fill(255);
   text("Crossflow Drag Coeff (C_d)", panelX + 370, row2Y);
   textSize(11);
@@ -1965,4 +1991,188 @@ function drawVesselSettingsPanel() {
   text("Click the button again or press ESC to close", panelX + panelW / 2, panelY + panelH - 35);
   
   pop(); // Restore drawing state
+}
+
+const TOUCH_joysticks = {
+  left: { 
+    active: false, 
+    id: -1, 
+    originX: 0, originY: 0, 
+    currX: 0, currY: 0, 
+    valX: 0, valY: 0 // -1..1 output (surge/sway)
+  },
+  right: { 
+    active: false, 
+    id: -1, 
+    originX: 0, originY: 0, 
+    currX: 0, currY: 0, 
+    valX: 0 // -1..1 output (yaw)
+  },
+  maxDist: 60 // px radius
+};
+
+function readTouch() {
+  // Returns object compatible with our input format
+  // fx: surge (up/down on left stick) -> -1..1
+  // fy: sway (left/right on left stick) -> -1..1
+  // yaw: (right stick x) -> -1..1
+  
+  // NOTE: In screen coords, Y is down. So stick UP is negative Y.
+  // We want forward thrust (+fx) when stick is UP (-Y).
+  // So fx = -valY
+  
+  // Sway: Stick right (+X) is starboard sway (+fy).
+  // fy = valX
+  
+  // Yaw: Right stick right (+X) is CW turn (+yaw).
+  
+  let fx = 0, fy = 0, yaw = 0;
+  
+  if (TOUCH_joysticks.left.active) {
+    fx = -TOUCH_joysticks.left.valY;
+    fy = TOUCH_joysticks.left.valX; // Right is starboard (+)
+  }
+  
+  if (TOUCH_joysticks.right.active) {
+    yaw = TOUCH_joysticks.right.valX; 
+  }
+
+  // Deadband is handled nicely by the touch logic, but let's be sure
+  if (Math.abs(fx) < 0.05) fx = 0;
+  if (Math.abs(fy) < 0.05) fy = 0;
+  if (Math.abs(yaw) < 0.05) yaw = 0;
+
+  return { fx, fy, yaw, active: (TOUCH_joysticks.left.active || TOUCH_joysticks.right.active) };
+}
+
+function drawTouchJoysticks() {
+    // Only show if this looks like a touch device, or if touch is currently active
+    const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    const anyActive = (TOUCH_joysticks.left.active || TOUCH_joysticks.right.active);
+    
+    if (!isTouch && !anyActive) return;
+
+  push();
+  // Only draw if we detect touch capability or are active
+  // Simple heuristic: just always check specific active states
+  
+  noStroke();
+  
+  // Draw Left Stick
+  if (TOUCH_joysticks.left.active) {
+    fill(255, 255, 255, 50);
+    circle(TOUCH_joysticks.left.originX, TOUCH_joysticks.left.originY, TOUCH_joysticks.maxDist * 2);
+    fill(255, 200, 100, 200);
+    circle(TOUCH_joysticks.left.currX, TOUCH_joysticks.left.currY, 50);
+  } else {
+    // Hint circle
+    fill(255, 255, 255, 20);
+    circle(100, height - 100, 80);
+    fill(255);
+    textAlign(CENTER);
+    textSize(10);
+    text("MOVE", 100, height - 100);
+  }
+
+  // Draw Right Stick
+  if (TOUCH_joysticks.right.active) {
+    fill(255, 255, 255, 50);
+    circle(TOUCH_joysticks.right.originX, TOUCH_joysticks.right.originY, TOUCH_joysticks.maxDist * 2);
+    fill(100, 200, 255, 200);
+    circle(TOUCH_joysticks.right.currX, TOUCH_joysticks.right.currY, 50);
+  } else {
+    // Hint circle
+    fill(255, 255, 255, 20);
+    circle(width - 100, height - 100, 80);
+    fill(255);
+    textAlign(CENTER);
+    textSize(10);
+    text("TURN", width - 100, height - 100);
+  }
+  pop();
+}
+
+function touchStarted() {
+  // Process all new touches
+  // p5 stores touches[] array
+  for (let t of touches) {
+    // Determine if this touch is left half or right half
+    if (t.x < width / 2) {
+      // Left stick (Translation)
+      if (!TOUCH_joysticks.left.active) {
+        TOUCH_joysticks.left.active = true;
+        TOUCH_joysticks.left.id = t.id;
+        TOUCH_joysticks.left.originX = t.x;
+        TOUCH_joysticks.left.originY = t.y;
+        TOUCH_joysticks.left.currX = t.x;
+        TOUCH_joysticks.left.currY = t.y;
+        TOUCH_joysticks.left.valX = 0;
+        TOUCH_joysticks.left.valY = 0;
+      }
+    } else {
+      // Right stick (Rotation)
+      if (!TOUCH_joysticks.right.active) {
+        TOUCH_joysticks.right.active = true;
+        TOUCH_joysticks.right.id = t.id;
+        TOUCH_joysticks.right.originX = t.x;
+        TOUCH_joysticks.right.originY = t.y;
+        TOUCH_joysticks.right.currX = t.x;
+        TOUCH_joysticks.right.currY = t.y;
+        TOUCH_joysticks.right.valX = 0; // Only care about X for yaw
+      }
+    }
+  }
+  // Prevent default behavior (scroll/zoom)
+  return false;
+}
+
+function touchMoved() {
+  for (let t of touches) {
+    if (TOUCH_joysticks.left.active && t.id === TOUCH_joysticks.left.id) {
+      const dx = t.x - TOUCH_joysticks.left.originX;
+      const dy = t.y - TOUCH_joysticks.left.originY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const clampedDist = Math.min(dist, TOUCH_joysticks.maxDist);
+      const angle = Math.atan2(dy, dx);
+      
+      TOUCH_joysticks.left.currX = TOUCH_joysticks.left.originX + Math.cos(angle) * clampedDist;
+      TOUCH_joysticks.left.currY = TOUCH_joysticks.left.originY + Math.sin(angle) * clampedDist;
+      
+      // Normalize output -1..1
+      TOUCH_joysticks.left.valX = (TOUCH_joysticks.left.currX - TOUCH_joysticks.left.originX) / TOUCH_joysticks.maxDist;
+      TOUCH_joysticks.left.valY = (TOUCH_joysticks.left.currY - TOUCH_joysticks.left.originY) / TOUCH_joysticks.maxDist;
+    }
+    
+    if (TOUCH_joysticks.right.active && t.id === TOUCH_joysticks.right.id) {
+       const dx = t.x - TOUCH_joysticks.right.originX;
+       const dy = t.y - TOUCH_joysticks.right.originY;
+       // Only care about X for yaw really, but visualise 2d
+       const dist = Math.sqrt(dx*dx + dy*dy);
+       const clampedDist = Math.min(dist, TOUCH_joysticks.maxDist);
+       const angle = Math.atan2(dy, dx);
+
+       TOUCH_joysticks.right.currX = TOUCH_joysticks.right.originX + Math.cos(angle) * clampedDist;
+       TOUCH_joysticks.right.currY = TOUCH_joysticks.right.originY + Math.sin(angle) * clampedDist;
+
+       TOUCH_joysticks.right.valX = (TOUCH_joysticks.right.currX - TOUCH_joysticks.right.originX) / TOUCH_joysticks.maxDist;
+    }
+  }
+  return false;
+}
+
+function touchEnded() {
+  // Check which touches remain
+  const remainingIds = touches.map(t => t.id);
+  
+  if (TOUCH_joysticks.left.active && !remainingIds.includes(TOUCH_joysticks.left.id)) {
+    TOUCH_joysticks.left.active = false;
+    TOUCH_joysticks.left.valX = 0;
+    TOUCH_joysticks.left.valY = 0;
+  }
+  
+  if (TOUCH_joysticks.right.active && !remainingIds.includes(TOUCH_joysticks.right.id)) {
+    TOUCH_joysticks.right.active = false;
+    TOUCH_joysticks.right.valX = 0;
+  }
+  return false;
 }
