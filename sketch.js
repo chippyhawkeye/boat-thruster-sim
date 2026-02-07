@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.6";
+const SIM_VERSION = "v0.1.7";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -2213,7 +2213,7 @@ function touchEnded() {
     TOUCH_joysticks.right.active = false;
     TOUCH_joysticks.right.valX = 0;
   }
-  return false;
+  return true;
 }
 
 function drawWindPanelLabel() {
