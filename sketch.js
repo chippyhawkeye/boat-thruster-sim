@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.7";
+const SIM_VERSION = "v0.1.8";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -662,6 +662,14 @@ function readCombinedInput() {
   if (hasKeyboardInput) {
     return { ...kbInput, connected: true, axesCount: 3, source: 'keyboard', anchor: keyboardState.space };
   }
+
+  // If on mobile/touch device, allow "neutral" touch input (connected=true) 
+  // so that Digital Anchor works even when not touching the screen.
+  const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  if (isTouch && width < 1024) {    
+      return { fx: 0, fy: 0, yaw: 0, connected: true, axesCount: 3, source: 'touch', anchor: undefined };
+  }
+
   return { ...readJoystick(), source: 'gamepad' };
 }
 
