@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.5";
+const SIM_VERSION = "v0.1.6";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -2079,7 +2079,10 @@ function isTouchOnUI(x, y) {
        
        // Buttons zone (toggle, settings, vessel)
        // They are at x=20..
-       if (x < 300 && y >= 240 && y < 450) return true;
+       // Wind panel is y=140. Mobile buttons start at wy + 100 => 240.
+       // However, DOM elements might have padding or the touch area might extend upwards.
+       // Let's protect form y=220 to safely include the top of the checkbox.
+       if (x < 360 && y >= 220 && y < 500) return true;
        
        // Vessel Settings Panel (if open)
        if (vesselSettingsPanelOpen) {
