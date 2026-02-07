@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.2";
+const SIM_VERSION = "v0.1.3";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -1394,6 +1394,9 @@ function drawUI(debug, joy) {
   // Thruster panel (bottom-left) -- Hide on small touch screens to avoid overlap
   if (!isTouch || width > 600) {
       drawThrusterPanel();
+  } else {
+     // On mobile, show a simplified text line above bottom status?
+     // Or just nothing to keep clean.
   }
 
   // Bottom-right docking metrics (always on) -- Hide on small touch screens to avoid overlap
@@ -1991,10 +1994,13 @@ function touchStarted() {
   // Process all new touches
   let consumed = false;
   
+  // joystick config
+  const joystickTopLimit = height - 250; // Only allow joysticks in bottom ~250px
+
   // p5 stores touches[] array
   for (let t of touches) {
-    // Ignore touches in the top area where buttons/UI might be (approx top 40%)
-    if (t.y < height * 0.45) continue;
+    // strict check: ignore touches that are not in the joystick zone
+    if (t.y < joystickTopLimit) continue; 
 
     // Determine if this touch is left half or right half
     if (t.x < width / 2) {
