@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.3";
+const SIM_VERSION = "v0.1.4";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -738,16 +738,14 @@ function setup() {
   windDirSlider = createSlider(0, 359, windDirectionDeg, 1);
 
   // We'll position these in a helper so resize also works
-  positionWindUI();
+  updateInterfaceLayout();
 
   // Digital anchor toggle
   digitalAnchorToggle = createCheckbox("Digital Anchor (hold u,v,r = 0 when stick neutral)", false);
-  digitalAnchorToggle.position(20, 215);
   digitalAnchorToggle.style("color", "#fff");
 
   // Settings button
   settingsButton = createButton("⚙️ Thruster Settings");
-  settingsButton.position(20, 250);
   settingsButton.mousePressed(toggleSettingsPanel);
   settingsButton.style("padding", "8px 16px");
   settingsButton.style("font-size", "14px");
@@ -755,30 +753,93 @@ function setup() {
 
   // Vessel settings button
   vesselSettingsButton = createButton("🚤 Vessel Settings");
-  vesselSettingsButton.position(20, 290);
   vesselSettingsButton.mousePressed(toggleVesselSettingsPanel);
   vesselSettingsButton.style("padding", "8px 16px");
   vesselSettingsButton.style("font-size", "14px");
   vesselSettingsButton.style("cursor", "pointer");
+  
+  // Call layout again once buttons exist
+  updateInterfaceLayout();
 
   // Create thruster input fields (initially hidden)
   createThrusterInputs();
   createVesselInputs();
 }
 
-function positionWindUI() {
-  // Keep wind controls inside the wind panel in the upper-right
-  const panelW = 260;
-  const panelH = 170;
-  const x0 = Math.max(20, width - panelW - 20);
-  const y0 = 20;
+function updateInterfaceLayout() {
+  if (!windSpeedSlider) return; // Not ready
+  
+  const isNarrow = width < 720;
+  
+  if (isNarrow) {
+     // --- MOBILE LAYOUT ---
+     
+     // 1. Wind Panel (Moves to top-left, stacked under status panel)
+     // Status panel (drawn in drawUI) is approx 200px tall. We'll simplify it in drawUI later.
+     // Let's assume on Mobile we want the wind sliders somewhat accessible.
+     // Status Panel: y=10. h=120 (reduced height).
+     // Wind Panel: y=140.
+     
+     const wx = 20;
+     const wy = 140; // under status
+     
+     windSpeedSlider.position(wx + 20, wy + 28);
+     windSpeedSlider.style("width", Math.min(220, width - 60) + "px");
+     
+     windDirSlider.position(wx + 20, wy + 62);
+     windDirSlider.style("width", Math.min(220, width - 60) + "px");
+     
+     // 2. Buttons (Stacked below Wind)
+     // Wind panel height approx 90px (compact).
+     let by = wy + 100;
+     
+     if (digitalAnchorToggle) {
+        digitalAnchorToggle.position(wx, by);
+        // Make tap area larger
+        digitalAnchorToggle.style("transform", "scale(1.2)");
+        digitalAnchorToggle.style("transform-origin", "left center");
+     }
+     by += 40;
+     
+     if (settingsButton) {
+        settingsButton.position(wx, by);
+     }
+     by += 45;
+     
+     if (vesselSettingsButton) {
+        vesselSettingsButton.position(wx, by);
+     }
+     
+  } else {
+     // --- DESKTOP LAYOUT ---
+     
+     // Wind Top Right
+     const panelW = 260;
+     const x0 = Math.max(20, width - panelW - 20);
+     const y0 = 20;
+     
+     windSpeedSlider.position(x0 + 20, y0 + 108);
+     windSpeedSlider.style("width", "220px");
 
-  // Sliders positioned so they NEVER overlap labels
-  windSpeedSlider.position(x0 + 20, y0 + 108);
-  windSpeedSlider.style("width", "220px");
+     windDirSlider.position(x0 + 20, y0 + 142);
+     windDirSlider.style("width", "220px");
+     
+     // Buttons Top Left (below status panel which is ~178h)
+     const btnX = 20;
+     const btnY = 215;
+     
+     if (digitalAnchorToggle) {
+        digitalAnchorToggle.position(btnX, btnY);
+        digitalAnchorToggle.style("transform", "scale(1.0)");
+     }
+     if (settingsButton) settingsButton.position(btnX, 250);
+     if (vesselSettingsButton) vesselSettingsButton.position(btnX, 290);
+  }
+}
 
-  windDirSlider.position(x0 + 20, y0 + 142);
-  windDirSlider.style("width", "220px");
+// Deprecated old function, kept just in case but we use updateInterfaceLayout now
+function positionWindUI() { 
+  updateInterfaceLayout();
 }
 
 let prevAnchorEnabled = false;
@@ -865,6 +926,7 @@ function drawKeyboardHelp() {
   drawWindArrow();
   drawBoat();
   drawUI(debug, joy);
+  drawWindPanelLabel(); // Helper to draw just the non-DOM parts (background/text)
   
   // Draw settings panel if open
   if (settingsPanelOpen) {
@@ -1366,11 +1428,14 @@ function drawUI(debug, joy) {
   drawTouchJoysticks();
 
   // Top-left status panel
+  const isNarrow = width < 720;
+  
   const x0 = 20;
   const y0 = 20;
   // Responsive width for mobile
   const w = Math.min(360, width - 40);
-  const h = 178;
+  // Compact height for mobile to fit wind panel below
+  const h = isNarrow ? 110 : 178;
 
   noStroke();
   fill(0, 0, 0, 80);
@@ -1388,8 +1453,12 @@ function drawUI(debug, joy) {
   text(modeText, x0 + 14, y); y += 22;
   text(`Speed: ${speed.toFixed(2)} m/s  (${knots.toFixed(2)} kt)`, x0 + 14, y); y += 20;
   text(`Heading: ${degrees(boatState.heading).toFixed(1)}°   r: ${boatState.angularVel.toFixed(2)} rad/s`, x0 + 14, y); y += 20;
-  text(`Net |F|: ${debug.netF.toFixed(0)} N   Net τ: ${debug.netTorque.toFixed(0)} N·m`, x0 + 14, y); y += 20;
-  text(`Hydro: Cf=${debug.hydroCf.toExponential(2)}  Re=${debug.hydroRe.toExponential(2)}`, x0 + 14, y);
+  
+  // Hide debug details on mobile to save space
+  if (!isNarrow) {
+     text(`Net |F|: ${debug.netF.toFixed(0)} N   Net τ: ${debug.netTorque.toFixed(0)} N·m`, x0 + 14, y); y += 20;
+     text(`Hydro: Cf=${debug.hydroCf.toExponential(2)}  Re=${debug.hydroRe.toExponential(2)}`, x0 + 14, y);
+  }
 
   // Thruster panel (bottom-left) -- Hide on small touch screens to avoid overlap
   if (!isTouch || width > 600) {
@@ -1527,7 +1596,7 @@ function drawThrusterPanel() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  positionWindUI();
+  updateInterfaceLayout();
   initDock();
 }
 
@@ -1709,6 +1778,10 @@ function createVesselInputs() {
   vesselInputs.Cd_side = mkInput(BOAT_CONFIG.wind, 'Cd_side');
   vesselInputs.A_front = mkInput(BOAT_CONFIG.wind, 'A_front');
   vesselInputs.A_side = mkInput(BOAT_CONFIG.wind, 'A_side');
+}
+
+function toggleSettingsPanel() {
+  settingsPanelOpen = !settingsPanelOpen;
 }
 
 function toggleVesselSettingsPanel() {
@@ -2089,4 +2162,63 @@ function touchEnded() {
     TOUCH_joysticks.right.valX = 0;
   }
   return false;
+}
+
+function drawWindPanelLabel() {
+  const isNarrow = width < 720;
+  
+  // Calculate position same as updateInterfaceLayout
+  let x0, y0, panelW, panelH;
+  
+  if (isNarrow) {
+     x0 = 20;
+     y0 = 140; // under status
+     panelW = Math.min(260, width - 40);
+     panelH = 90;
+  } else {
+     panelW = 260;
+     panelH = 170;
+     x0 = Math.max(20, width - panelW - 20);
+     y0 = 20;
+  }
+
+  noStroke();
+  fill(0, 0, 0, 80);
+  rect(x0, y0, panelW, panelH, 10);
+  
+  fill(255);
+  textSize(14);
+  textAlign(LEFT, TOP);
+  text("Wind Control", x0 + 14, y0 + 10);
+  
+  textSize(12);
+  let speed = windSpeedSlider ? windSpeedSlider.value() : windSpeed;
+  let dir = windDirSlider ? windDirSlider.value() : windDirectionDeg;
+  
+  if (isNarrow) {
+     text(`Speed: ${speed} m/s`, x0 + 14, y0 + 32);
+     text(`Dir: ${dir}°`, x0 + 14, y0 + 66);
+  } else {
+    // Desktop layout with description
+    text(`Speed: ${speed} m/s`, x0 + 14, y0 + 90);
+    text(`Dir: ${dir}°`, x0 + 14, y0 + 124);
+    
+    // Wind vector viz inside panel
+    const cx = x0 + panelW / 2;
+    const cy = y0 + 60;
+    push();
+    translate(cx, cy);
+    noFill();
+    stroke(255, 255, 255, 50);
+    circle(0, 0, 40);
+    
+    // Arrow pointing FROM wind direction
+    rotate(radians(dir + 180));
+    stroke(100, 200, 255);
+    strokeWeight(2);
+    line(0, -15, 0, 15);
+    line(0, 15, -4, 10);
+    line(0, 15, 4, 10);
+    pop();
+  }
 }
