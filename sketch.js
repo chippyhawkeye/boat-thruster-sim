@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.4";
+const SIM_VERSION = "v0.1.5;
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -1780,10 +1780,6 @@ function createVesselInputs() {
   vesselInputs.A_side = mkInput(BOAT_CONFIG.wind, 'A_side');
 }
 
-function toggleSettingsPanel() {
-  settingsPanelOpen = !settingsPanelOpen;
-}
-
 function toggleVesselSettingsPanel() {
   vesselSettingsPanelOpen = !vesselSettingsPanelOpen;
   updateVesselInputsVisibility();
@@ -2063,6 +2059,47 @@ function drawTouchJoysticks() {
   pop();
 }
 
+// Helper to detect if a touch is on a known UI element interaction zone.
+// Used to prevent joystick activation when using UI.
+function isTouchOnUI(x, y) {
+   const isNarrow = width < 720;
+   
+   if (isNarrow) {
+       // Mobile Layout Zones
+       
+       // 1. Wind + Toggle + Buttons area (Top-Left / Mid-Left)
+       // Wind panel starts y=140, h=90 => y=[140..230]
+       // Buttons start y=230 down to ~400
+       // Let's protect the whole left strip for safety?
+       // width < 300px?
+       // Or simpler: define a rectangle for the UI block
+       
+       // Wind Panel zone
+       if (y >= 140 && y < 240 && x < width) return true;
+       
+       // Buttons zone (toggle, settings, vessel)
+       // They are at x=20..
+       if (x < 300 && y >= 240 && y < 450) return true;
+       
+       // Vessel Settings Panel (if open)
+       if (vesselSettingsPanelOpen) {
+           const panelW = width - 20;
+           const panelH = 600;
+           const panelX = Math.max(10, (width - panelW) / 2);
+           const panelY = Math.max(10, (height - panelH) / 2);
+           if (x >= panelX && x <= panelX + panelW && y >= panelY && y <= panelY + panelH) return true;
+       }
+       
+       // Thruster Settings Panel (if open)
+       if (settingsPanelOpen) {
+          // It's a modal overlay, so technically whole screen is UI
+          return true; 
+       }
+   }
+   
+   return false;
+}
+
 function touchStarted() {
   // Process all new touches
   let consumed = false;
@@ -2073,7 +2110,8 @@ function touchStarted() {
   // p5 stores touches[] array
   for (let t of touches) {
     // strict check: ignore touches that are not in the joystick zone
-    if (t.y < joystickTopLimit) continue; 
+    // AND ignore touches that are specifically on UI elements
+    if (t.y < joystickTopLimit || isTouchOnUI(t.x, t.y)) continue; 
 
     // Determine if this touch is left half or right half
     if (t.x < width / 2) {
@@ -2114,6 +2152,8 @@ function touchStarted() {
 }
 
 function touchMoved() {
+  let joystickMoved = false;
+
   for (let t of touches) {
     if (TOUCH_joysticks.left.active && t.id === TOUCH_joysticks.left.id) {
       const dx = t.x - TOUCH_joysticks.left.originX;
@@ -2128,6 +2168,7 @@ function touchMoved() {
       // Normalize output -1..1
       TOUCH_joysticks.left.valX = (TOUCH_joysticks.left.currX - TOUCH_joysticks.left.originX) / TOUCH_joysticks.maxDist;
       TOUCH_joysticks.left.valY = (TOUCH_joysticks.left.currY - TOUCH_joysticks.left.originY) / TOUCH_joysticks.maxDist;
+      joystickMoved = true;
     }
     
     if (TOUCH_joysticks.right.active && t.id === TOUCH_joysticks.right.id) {
@@ -2142,9 +2183,17 @@ function touchMoved() {
        TOUCH_joysticks.right.currY = TOUCH_joysticks.right.originY + Math.sin(angle) * clampedDist;
 
        TOUCH_joysticks.right.valX = (TOUCH_joysticks.right.currX - TOUCH_joysticks.right.originX) / TOUCH_joysticks.maxDist;
+       joystickMoved = true;
     }
   }
-  return false;
+  
+  // NOTE: If we return `false`, it prevents default scrolling behavior on mobile.
+  // We want to prevent scroll ONLY if we are actively dragging a joystick.
+  // If we are dragging a slider, we must return true (or let it pass) for it to update.
+  if (joystickMoved) {
+      return false; 
+  }
+  return true;
 }
 
 function touchEnded() {
