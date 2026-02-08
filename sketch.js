@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.18";
+const SIM_VERSION = "v0.1.19";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -1009,6 +1009,18 @@ function draw() {
   drawUI(debug, joy);
   drawWindPanelLabel(); // Helper to draw just the non-DOM parts (background/text)
   
+  // Draw Version Number explicitly at the end of the main draw flow
+  // to ensure visibility on all devices
+  const isNarrow = width < 900;
+  push();
+  fill(180);
+  noStroke();
+  textAlign(CENTER, BASELINE);
+  textSize(isNarrow ? 12 : 13);
+  // Place slightly above bottom to clear overlapping panels
+  text(SIM_VERSION, width / 2, height - (isNarrow ? 35 : 50));
+  pop();
+
   // Draw master settings popup (mobile) if open
   // Drawn first so sub-panels can overlay it
   if (masterSettingsOpen) {
@@ -1626,12 +1638,6 @@ function drawUI(debug, joy) {
   if (width >= 900) {
     fill(255);
     textSize(Math.min(13, width / 40)); 
-    
-    push();
-    textAlign(CENTER, BASELINE);
-    fill(150, 150, 150);
-    text(SIM_VERSION, width / 2, height - 18);
-    pop();
 
     if (joy && joy.connected) {
       if (joy.source === 'keyboard') {
@@ -1645,6 +1651,7 @@ function drawUI(debug, joy) {
         text("Keyboard: W/S surge | Q/E sway | A/D yaw | or connect gamepad", 20, height - 18);
     }
   }
+
  } catch (e) {
     console.error("drawUI error:", e);
  }
