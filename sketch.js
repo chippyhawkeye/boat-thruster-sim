@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.9";
+const SIM_VERSION = "v0.1.18";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -359,7 +359,10 @@ let windSpeedSlider, windDirSlider;
 let digitalAnchorToggle;
 let settingsButton;
 let vesselSettingsButton;
-let modeText = "";
+let mobileMenuButton; 
+let masterSettingsOpen = false;
+
+let modeText = ""; // Global mode text for UI display
 
 // Settings panel state
 let settingsPanelOpen = false;
@@ -651,6 +654,11 @@ function readKeyboard() {
 
 // Merge keyboard, touch, and gamepad inputs (priority: Touch > Keyboard > Gamepad)
 function readCombinedInput() {
+  // Block control inputs if master settings menu is open
+  if (masterSettingsOpen) {
+      return { fx: 0, fy: 0, yaw: 0, connected: true, axesCount: 3, source: 'modal', anchor: undefined };
+  }
+
   const touchInput = readTouch();
   if (touchInput.active) {
     // Touch overrides everything if active
@@ -765,6 +773,17 @@ function setup() {
   vesselSettingsButton.style("padding", "8px 16px");
   vesselSettingsButton.style("font-size", "14px");
   vesselSettingsButton.style("cursor", "pointer");
+
+  // Mobile Menu Button (Hamburger)
+  mobileMenuButton = createButton("☰");
+  mobileMenuButton.mousePressed(toggleMasterSettings);
+  mobileMenuButton.style("padding", "8px 12px");
+  mobileMenuButton.style("font-size", "20px");
+  mobileMenuButton.style("background", "rgba(0,0,0,0.5)");
+  mobileMenuButton.style("color", "white");
+  mobileMenuButton.style("border", "1px solid white");
+  mobileMenuButton.style("border-radius", "4px");
+  mobileMenuButton.hide(); // Hidden by default, shown in layout if mobile
   
   // Call layout again once buttons exist
   updateInterfaceLayout();
@@ -777,49 +796,90 @@ function setup() {
 function updateInterfaceLayout() {
   if (!windSpeedSlider) return; // Not ready
   
-  const isNarrow = width < 720;
+  // Use a larger breakpoint to include tablets/large phones
+  const isNarrow = width < 900;
   
   if (isNarrow) {
      // --- MOBILE LAYOUT ---
      
-     // 1. Wind Panel (Moves to top-left, stacked under status panel)
-     // Status panel (drawn in drawUI) is approx 200px tall. We'll simplify it in drawUI later.
-     // Let's assume on Mobile we want the wind sliders somewhat accessible.
-     // Status Panel: y=10. h=120 (reduced height).
-     // Wind Panel: y=140.
-     
-     const wx = 20;
-     const wy = 140; // under status
-     
-     windSpeedSlider.position(wx + 20, wy + 28);
-     windSpeedSlider.style("width", Math.min(220, width - 60) + "px");
-     
-     windDirSlider.position(wx + 20, wy + 62);
-     windDirSlider.style("width", Math.min(220, width - 60) + "px");
-     
-     // 2. Buttons (Stacked below Wind)
-     // Wind panel height approx 90px (compact).
-     let by = wy + 100;
-     
-     if (digitalAnchorToggle) {
-        digitalAnchorToggle.position(wx, by);
-        // Make tap area larger
-        digitalAnchorToggle.style("transform", "scale(1.2)");
-        digitalAnchorToggle.style("transform-origin", "left center");
+     // 1. Wind Panel (now inside menu)
+     // Default: hidden
+     windSpeedSlider.hide();
+     windDirSlider.hide();
+
+     // 2. Mobile Menu Button
+     if (mobileMenuButton) {
+        mobileMenuButton.show();
+        mobileMenuButton.position(width - 50, 15);
+        mobileMenuButton.style("font-size", "24px");
+        mobileMenuButton.style("background", "transparent");
+        mobileMenuButton.style("border", "none");
+        mobileMenuButton.style("color", "white");
+        mobileMenuButton.style("cursor", "pointer");
+        mobileMenuButton.style("z-index", "101");
      }
-     by += 40;
      
-     if (settingsButton) {
-        settingsButton.position(wx, by);
-     }
-     by += 45;
-     
-     if (vesselSettingsButton) {
-        vesselSettingsButton.position(wx, by);
+     // 3. Settings Buttons (Inside Modal vs Hidden)
+     if (masterSettingsOpen) {
+         // Center modal approx calculations
+         // (Actual background drawn in drawMasterSettingsPopup)
+         const modalW = 320;
+         const modalH = 400; // Match drawMasterSettingsPopup
+         const cx = width / 2;
+         const boxLeft = (width - modalW) / 2;
+         const boxTop = (height - modalH) / 2;
+         
+         let cy = boxTop + 85; 
+         
+         // 1. Wind Sliders
+         windSpeedSlider.show();
+         windSpeedSlider.position(boxLeft + 20, cy);
+         windSpeedSlider.style("width", (modalW - 40) + "px");
+         cy += 60;
+         
+         windDirSlider.show();
+         windDirSlider.position(boxLeft + 20, cy);
+         windDirSlider.style("width", (modalW - 40) + "px");
+         cy += 60;
+
+         // 2. Anchor Toggle
+         if (digitalAnchorToggle) {
+            digitalAnchorToggle.show();
+            // Checkbox
+            digitalAnchorToggle.position(boxLeft + 30, cy);
+            digitalAnchorToggle.style("transform", "scale(1.3)");
+            digitalAnchorToggle.style("color", "#fff");
+         }
+         cy += 60;
+         
+         // 3. Buttons
+         if (settingsButton) {
+            settingsButton.show();
+            settingsButton.style("width", "200px"); 
+            settingsButton.position(cx - 100, cy);
+         }
+         cy += 50;
+         
+         if (vesselSettingsButton) {
+            vesselSettingsButton.show();
+            vesselSettingsButton.style("width", "200px");
+            vesselSettingsButton.position(cx - 100, cy);
+         }
+         
+     } else {
+         // Hide layout buttons
+         if (digitalAnchorToggle) digitalAnchorToggle.hide();
+         if (settingsButton) settingsButton.hide();
+         if (vesselSettingsButton) vesselSettingsButton.hide();
      }
      
   } else {
      // --- DESKTOP LAYOUT ---
+     
+     if (mobileMenuButton) mobileMenuButton.hide();
+     
+     windSpeedSlider.show();
+     windDirSlider.show();
      
      // Wind Top Right
      const panelW = 260;
@@ -832,16 +892,25 @@ function updateInterfaceLayout() {
      windDirSlider.position(x0 + 20, y0 + 142);
      windDirSlider.style("width", "220px");
      
-     // Buttons Top Left (below status panel which is ~178h)
+     // Buttons Top Left (below status panel)
      const btnX = 20;
      const btnY = 215;
      
      if (digitalAnchorToggle) {
+        digitalAnchorToggle.show();
         digitalAnchorToggle.position(btnX, btnY);
         digitalAnchorToggle.style("transform", "scale(1.0)");
      }
-     if (settingsButton) settingsButton.position(btnX, 250);
-     if (vesselSettingsButton) vesselSettingsButton.position(btnX, 290);
+     if (settingsButton) {
+        settingsButton.show();
+        settingsButton.style("width", "auto"); // reset width
+        settingsButton.position(btnX, 250);
+     }
+     if (vesselSettingsButton) {
+        vesselSettingsButton.show();
+         vesselSettingsButton.style("width", "auto"); // reset width
+        vesselSettingsButton.position(btnX, 290);
+     }
   }
 }
 
@@ -852,14 +921,11 @@ function positionWindUI() {
 
 let prevAnchorEnabled = false;
 
-function draw() {
-
-  background(20, 40, 60);
-
-  // --- Keyboard Controls Help ---
-  drawKeyboardHelp();
 // Draws keyboard control instructions on the screen
 function drawKeyboardHelp() {
+  // Hide help on mobile/narrow screens to save space
+  if (width < 720) return;
+
   const lines = [
     'Keyboard Controls:',
     '  W/S: Forward/Reverse thrust',
@@ -884,6 +950,13 @@ function drawKeyboardHelp() {
   }
   pop();
 }
+
+function draw() {
+
+  background(20, 40, 60);
+
+  // --- Keyboard Controls Help ---
+  drawKeyboardHelp();
 
   // Draw dock first so boat overlays it
   drawDock();
@@ -936,6 +1009,12 @@ function drawKeyboardHelp() {
   drawUI(debug, joy);
   drawWindPanelLabel(); // Helper to draw just the non-DOM parts (background/text)
   
+  // Draw master settings popup (mobile) if open
+  // Drawn first so sub-panels can overlay it
+  if (masterSettingsOpen) {
+    drawMasterSettingsPopup();
+  }
+
   // Draw settings panel if open
   if (settingsPanelOpen) {
     drawSettingsPanel();
@@ -945,6 +1024,57 @@ function drawKeyboardHelp() {
   if (vesselSettingsPanelOpen) {
     drawVesselSettingsPanel();
   }
+}
+
+function drawMasterSettingsPopup() {
+  // Full-screen semi-transparent overlay
+  push();
+  fill(0, 0, 0, 200);
+  noStroke();
+  rect(0, 0, width, height);
+  
+  // Modal box
+  const modalW = 320;
+  const modalH = 400; // Increased height for wind sliders
+  const x = (width - modalW) / 2;
+  const y = (height - modalH) / 2;
+  
+  fill(30, 40, 50);
+  stroke(100, 200, 255);
+  strokeWeight(2);
+  rect(x, y, modalW, modalH, 12);
+  
+  // Title
+  noStroke();
+  fill(255);
+  textSize(20);
+  textAlign(CENTER, TOP);
+  text("Menu", width / 2, y + 20);
+  
+  // Wind Slider Labels (since they are in menu now)
+  // We need to match the positions set in updateInterfaceLayout
+  // cy starts at (height/2 - 90) for layout
+  textAlign(LEFT, TOP);
+  textSize(14);
+  fill(200);
+  
+  const contentStart = y + 60;
+  
+  // Wind Speed
+  text(`Wind Speed: ${windSpeed.toFixed(1)} m/s`, x + 20, contentStart);
+  // Slider is approx at contentStart + 25
+  
+  // Wind Dir
+  text(`Wind Dir: ${windDirectionDeg}°`, x + 20, contentStart + 60);
+  // Slider is approx at contentStart + 85
+
+  // Close hint
+  textAlign(CENTER, BASELINE);
+  textSize(14);
+  fill(180);
+  text("Tap menu icon to close", width / 2, y + modalH - 25);
+  
+  pop();
 }
 
 // ---------------- PHYSICS ----------------
@@ -1429,111 +1559,191 @@ function drawArrow(x, y, ang, len) {
 }
 
 function drawUI(debug, joy) {
+  try {
     // Only show if this looks like a touch device
     const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    const isNarrow = width < 900;
 
   // Draw virtual joysticks (if touch supported/active)
   drawTouchJoysticks();
 
   // Top-left status panel
-  const isNarrow = width < 720;
-  
   const x0 = 20;
   const y0 = 20;
-  // Responsive width for mobile
-  const w = Math.min(360, width - 40);
-  // Compact height for mobile to fit wind panel below
-  const h = isNarrow ? 110 : 178;
+  // Compact status panel for mobile
+  const w = isNarrow ? Math.min(280, width - 40) : Math.min(360, width - 40);
+  const h = isNarrow ? 90 : 178;
 
   noStroke();
   fill(0, 0, 0, 80);
   rect(x0, y0, w, h, 10);
 
-
   fill(255);
-  textSize(14);
+  textSize(isNarrow ? 12 : 14);
   textAlign(LEFT, BASELINE);
 
   const speed = Math.hypot(boatState.vel.x, boatState.vel.y);
   const knots = speed * 1.94384;
 
-  let y = y0 + 24;
-  text(modeText, x0 + 14, y); y += 22;
-  text(`Speed: ${speed.toFixed(2)} m/s  (${knots.toFixed(2)} kt)`, x0 + 14, y); y += 20;
-  text(`Heading: ${degrees(boatState.heading).toFixed(1)}°   r: ${boatState.angularVel.toFixed(2)} rad/s`, x0 + 14, y); y += 20;
+  let y = y0 + (isNarrow ? 20 : 24);
+  const lh = isNarrow ? 18 : 22; // Line height
   
-  // Hide debug details on mobile to save space
+  // Compact mode text on mobile
+  let modeDisplay = modeText;
+  if (isNarrow && modeText && modeText.includes("Digital Anchor")) modeDisplay = "Mode: Digital Anchor";
+  else if (isNarrow && modeText && modeText.includes("Joystick")) modeDisplay = "Mode: Joystick";
+  else if (!modeText) modeDisplay = "Mode: --";
+
+  text(modeDisplay, x0 + 14, y); y += lh;
+  text(`Speed: ${speed.toFixed(2)} m/s  (${knots.toFixed(2)} kt)`, x0 + 14, y); y += lh;
+  text(`Heading: ${degrees(boatState.heading).toFixed(1)}°`, x0 + 14, y); 
+  
   if (!isNarrow) {
-     text(`Net |F|: ${debug.netF.toFixed(0)} N   Net τ: ${debug.netTorque.toFixed(0)} N·m`, x0 + 14, y); y += 20;
+     y += lh;
+     text(`r: ${boatState.angularVel.toFixed(2)} rad/s`, x0 + 14, y); y += lh;
+     text(`Net |F|: ${debug.netF.toFixed(0)} N   Net τ: ${debug.netTorque.toFixed(0)} N·m`, x0 + 14, y); y += lh;
      text(`Hydro: Cf=${debug.hydroCf.toExponential(2)}  Re=${debug.hydroRe.toExponential(2)}`, x0 + 14, y);
   }
 
-  // Thruster panel (bottom-left) -- Hide on small touch screens to avoid overlap
-  if (!isTouch || width > 600) {
-      drawThrusterPanel();
+  // Thruster panel (bottom-left)
+  // On mobile, show it smaller and tucked away
+  if (isNarrow) {
+      drawThrusterPanelMobile();
   } else {
-     // On mobile, show a simplified text line above bottom status?
-     // Or just nothing to keep clean.
+      drawThrusterPanel();
   }
 
-  // Bottom-right docking metrics (always on) -- Hide on small touch screens to avoid overlap
-  if (!isTouch || width > 600) {
+  // Bottom-right docking metrics
+  if (isTouch && isNarrow) {
+     // Show simplified docking info at top-right
+     drawDockMetricsMobile();
+  } else if (!isTouch || width > 600) {
       drawDockMetricsPanel();
   }
 
   // Bottom status line with input info
-  fill(255);
-  textSize(Math.min(13, width / 40)); // Scale text for very narrow screens
-  
-  // Show version center-bottom
-  push();
-  textAlign(CENTER, BASELINE);
-  fill(150, 150, 150);
-  text(SIM_VERSION, width / 2, height - 18);
-  pop();
+  // Hide on mobile as it overlaps joysticks and isn't critical
+  if (width >= 900) {
+    fill(255);
+    textSize(Math.min(13, width / 40)); 
+    
+    push();
+    textAlign(CENTER, BASELINE);
+    fill(150, 150, 150);
+    text(SIM_VERSION, width / 2, height - 18);
+    pop();
 
-  if (joy && joy.connected) {
-    if (joy.source === 'keyboard') {
-      text(`Keyboard: W/S surge, Q/E sway, A/D yaw | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
-    } else if (joy.source === 'touch') {
-       text(`Touch Input Active | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
+    if (joy && joy.connected) {
+      if (joy.source === 'keyboard') {
+        text(`Keyboard: W/S surge, Q/E sway, A/D yaw | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
+      } else if (joy.source === 'touch') {
+          text(`Touch Input Active | fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw ${joy.yaw.toFixed(2)}`, 20, height - 18);
+      } else {
+        text(`Gamepad: fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw(axis5) ${joy.yaw.toFixed(2)}  axes:${joy.axesCount}`, 20, height - 18);
+      }
     } else {
-      text(`Gamepad: fx ${joy.fx.toFixed(2)}  fy ${joy.fy.toFixed(2)}  yaw(axis5) ${joy.yaw.toFixed(2)}  axes:${joy.axesCount}`, 20, height - 18);
-    }
-  } else {
-     if (isTouch && width < 600) {
-         text("Use onscreen joysticks to move and turn", 20, height - 18);
-     } else {
         text("Keyboard: W/S surge | Q/E sway | A/D yaw | or connect gamepad", 20, height - 18);
-     }
+    }
   }
+ } catch (e) {
+    console.error("drawUI error:", e);
+ }
 }
 
-function drawDockMetricsPanel() {
-  const pad = 14;
-  const w = Math.min(280, width - 40);
-  const h = 86;
-  const x0 = width - w - pad;
-  const y0 = height - h - pad;
+function drawDockMetricsMobile() {
+  const w = 150;
+  const h = 50;
+  const x0 = width - w - 60; // Left of menu button
+  const y0 = 15; // Align with menu button
 
   noStroke();
   fill(0, 0, 0, 80);
-  rect(x0, y0, w, h, 10);
+  rect(x0, y0, w, h, 8);
 
   fill(255);
-  textSize(14);
-  text("Docking", x0 + 14, y0 + 24);
-
-  textSize(13);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  
   const dft = lastDockMetrics.distance_ft;
   const dm = lastDockMetrics.distance_m;
-  text(`Distance: ${dft.toFixed(1)} ft (${dm.toFixed(2)} m)`, x0 + 14, y0 + 46);
-  text(`Approach angle: ${lastDockMetrics.approach_deg.toFixed(1)}°`, x0 + 14, y0 + 66);
-
+  
   if (lastDockMetrics.collided) {
-    fill(255, 120, 120);
-    text("CONTACT", x0 + w - 90, y0 + 24);
+    fill(255, 100, 100);
+    text("CONTACT!", x0 + 10, y0 + 10);
+    fill(255);
+    text(`${dft.toFixed(1)}ft`, x0 + 10, y0 + 26);
+  } else {
+    text(`Dock: ${dft.toFixed(1)}ft`, x0 + 10, y0 + 10);
+    text(`Ang: ${lastDockMetrics.approach_deg.toFixed(1)}°`, x0 + 10, y0 + 26);
   }
+}
+
+function drawThrusterPanelMobile() {
+  const w = 240; // Slightly wider for power info
+  const h = 90;
+  // Place under top-left status panel
+  const x0 = 20; 
+  const y0 = 120; // Approx below status status (h=90)
+
+  noStroke();
+  fill(0, 0, 0, 80);
+  rect(x0, y0, w, h, 8);
+
+  fill(255);
+  textSize(11); // Smaller text
+  textAlign(LEFT, TOP);
+  
+  let y = y0 + 8;
+  const speed = Math.hypot(boatState.vel.x, boatState.vel.y);
+  const Veff = Math.max(speed, 0.6);
+  let totalP_W = 0;
+  
+  for (let i = 0; i < 3; i++) {
+    const t = BOAT_CONFIG.thrusters[i];
+    const cmd = clamp(boatState.thrusterCmd[i], -1, 1);
+    
+    // Quick thrust calc
+    const thrustInfo = thrustLimitForThruster(t, speed, false);
+    const isForward = (cmd * t.forwardSign) >= 0;
+    const limit_struct = isForward ? thrustInfo.T_forward_max : thrustInfo.T_reverse_max;
+    const limit_power = isForward ? thrustInfo.T_power_fwd : thrustInfo.T_power_rev;
+    const available = Math.min(limit_struct, limit_power);
+    
+    const Tact = Math.abs(cmd) * available;
+    
+    // Power calc
+    let P_est = 0;
+    const eta_eff = isForward ? t.eta : (t.eta * t.T_reverse_max / t.T_forward_max);
+    if (eta_eff > 1e-6) {
+      P_est = (Tact * Veff) / eta_eff;
+      P_est = Math.min(P_est, t.P_cont);
+    }
+    totalP_W += P_est;
+    
+    const cmdPct = (cmd * 100).toFixed(0);
+    const kw = (P_est/1000).toFixed(1);
+    
+    fill(cmd >= 0 ? 220 : 255, cmd >= 0 ? 255 : 200, 220);
+    // Compact line: Name Pct N kW
+    // "Bow: 100% 400N 2.4kW"
+    text(`${t.name}: ${cmdPct}%  ${Tact.toFixed(0)}N  ${kw}kW`, x0 + 10, y);
+    
+    // Mini bar (shifted right)
+    noStroke();
+    fill(100);
+    const barX = x0 + 180;
+    rect(barX, y + 2, 40, 4);
+    fill(cmd > 0 ? 'orange' : 'cyan');
+    if (cmd > 0) rect(barX + 20, y + 2, 20 * cmd, 4);
+    if (cmd < 0) rect(barX + 20 + 20 * cmd, y + 2, 20 * Math.abs(cmd), 4);
+    
+    y += 18;
+  }
+  
+  // Power total at bottom right corner? Or just below?
+  fill(200);
+  textAlign(RIGHT, BASELINE);
+  text(`Σ Pot: ${(totalP_W/1000).toFixed(2)} kW`, x0 + w - 10, y0 + h - 5);
 }
 
 function drawThrusterPanel() {
@@ -1590,6 +1800,7 @@ function drawThrusterPanel() {
 
     const cmdPct = (cmd * 100).toFixed(0);
     textSize(13);
+   
     text(
       `${t.name}: cmd ${cmdPct}%   Thrust ${Tact.toFixed(0)} N   P≈ ${(P_est / 1000).toFixed(2)} kW`,
       x0 + 14,
@@ -1606,6 +1817,19 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   updateInterfaceLayout();
   initDock();
+}
+
+function toggleMasterSettings() {
+  masterSettingsOpen = !masterSettingsOpen;
+  
+  // Close sub-panels if we close the master menu?
+  // Or if we open the master menu, ensure we see the buttons.
+  if (!masterSettingsOpen) {
+     // Closing menu. Sub panels remain? 
+     // Usually if you close the menu, you go back to game.
+  }
+  
+  updateInterfaceLayout();
 }
 
 function toggleSettingsPanel() {
@@ -1664,8 +1888,6 @@ function drawSettingsPanel() {
   textSize(12);
   fill(200, 220, 255);
   text("Edit thruster parameters below. Changes apply immediately.", panelX + panelW / 2, panelY + 50);
-  
-  // (Removed duplicate column headers and thruster rows)
   
   // Column headers
   textAlign(LEFT, TOP);
@@ -1786,499 +2008,247 @@ function createVesselInputs() {
   vesselInputs.Cd_side = mkInput(BOAT_CONFIG.wind, 'Cd_side');
   vesselInputs.A_front = mkInput(BOAT_CONFIG.wind, 'A_front');
   vesselInputs.A_side = mkInput(BOAT_CONFIG.wind, 'A_side');
+  vesselInputs.cp_x = mkInput(BOAT_CONFIG.wind, 'cp_x');
+}
+
+// ---------------- TOUCH INPUT ----------------
+function readTouch() {
+  // If p5 touches is undefined or empty
+  if (typeof touches === 'undefined' || touches.length === 0) {
+    return { fx: 0, fy: 0, yaw: 0, active: false };
+  }
+
+  let fx = 0, fy = 0, yaw = 0;
+  let active = false;
+
+  // Simple virtual joysticks
+  // Left half: Translation (Fx, Fy)
+  // Right half: Rotation (Yaw)
+  
+  const midX = width / 2;
+  const stickRadius = 100;
+  
+  // Center points for virtual sticks (approximate)
+  const leftCenter = { x: width * 0.2, y: height * 0.7 };
+  const rightCenter = { x: width * 0.8, y: height * 0.7 };
+
+  for (let t of touches) {
+    // Ignore touches on top UI bar
+    if (t.y < 120) continue; 
+    
+    // Ignore touches if inside master menu? (Already handled in readCombinedInput)
+
+    active = true;
+
+    if (t.x < midX) {
+      // Left Stick (Translate)
+      const dx = (t.x - leftCenter.x) / stickRadius;
+      const dy = -(t.y - leftCenter.y) / stickRadius; // Up is -y in screen, +x in body
+      
+      fx = clamp(dy, -1, 1);
+      fy = clamp(dx, -1, 1);
+    } else {
+      // Right Stick (Yaw)
+      const dx = (t.x - rightCenter.x) / stickRadius;
+      yaw = clamp(dx, -1, 1);
+    }
+  }
+
+  return { fx, fy, yaw, active };
+}
+
+function drawWindPanelLabel() {
+  const isNarrow = width < 900; 
+  if (isNarrow) return; // On mobile, wind controls are in the menu now
+  
+  push();
+  // Desktop: Panel background and labels
+  const panelW = 260;
+  const x0 = Math.max(20, width - panelW - 20);
+  const y0 = 20;
+  const h = 178;
+
+  noStroke();
+  fill(30, 40, 50, 180); // Semi-transparent
+  rect(x0, y0, panelW, h, 8);
+  
+  fill(255);
+  textSize(16);
+  textAlign(LEFT, TOP);
+  text("Wind Conditions", x0 + 14, y0 + 14);
+  
+  stroke(255, 255, 255, 40);
+  line(x0+10, y0+40, x0+panelW-10, y0+40);
+  noStroke();
+  
+  // Labels specific to sliders
+  fill(220);
+  textSize(14);
+  text(`Speed: ${windSpeed.toFixed(1)} m/s`, x0 + 20, y0 + 85);
+  text(`Direction: ${windDirectionDeg}°`, x0 + 20, y0 + 118);
+  
+  pop();
 }
 
 function toggleVesselSettingsPanel() {
   vesselSettingsPanelOpen = !vesselSettingsPanelOpen;
-  updateVesselInputsVisibility();
-}
-
-function updateVesselInputsVisibility() {
+  
+  // Show/Hide inputs
   const show = vesselSettingsPanelOpen;
-  const isNarrow = width < 720;
-  const tab = vesselSettingsTab; // 'HYDRO' or 'WIND'
+  
+  // Helper to show/hide group
+  const toggle = (inp) => { if(inp) show ? inp.show() : inp.hide(); };
 
-  const setVis = (inp, visible) => {
-    if (visible) inp.show(); else inp.hide();
-  };
-
-  if(!show) {
-    if (vesselInputs.mass) Object.values(vesselInputs).forEach(inp => inp.hide());
-    return;
+  if (show) {
+      // Update values from config before showing
+      if (vesselInputs.mass) vesselInputs.mass.value(BOAT_CONFIG.mass.toString());
+      if (vesselInputs.Cd_lat) vesselInputs.Cd_lat.value(BOAT_CONFIG.hydro.Cd_lat.toString());
+      if (vesselInputs.A_lat) vesselInputs.A_lat.value(BOAT_CONFIG.hydro.A_lat.toString());
+      
+      if (vesselInputs.Cd_front) vesselInputs.Cd_front.value(BOAT_CONFIG.wind.Cd_front.toString());
+      if (vesselInputs.Cd_side) vesselInputs.Cd_side.value(BOAT_CONFIG.wind.Cd_side.toString());
+      if (vesselInputs.A_front) vesselInputs.A_front.value(BOAT_CONFIG.wind.A_front.toString());
+      if (vesselInputs.A_side) vesselInputs.A_side.value(BOAT_CONFIG.wind.A_side.toString());
+      if (vesselInputs.cp_x) vesselInputs.cp_x.value(BOAT_CONFIG.wind.cp_x.toString());
   }
 
-  // If showing, determines which ones based on layout
-  if (isNarrow) {
-     const showHydro = (tab === 'HYDRO');
-     const showWind  = (tab === 'WIND');
-     
-     setVis(vesselInputs.mass, showHydro);
-     setVis(vesselInputs.Cd_lat, showHydro);
-     setVis(vesselInputs.A_lat, showHydro);
-     
-     setVis(vesselInputs.Cd_front, showWind);
-     setVis(vesselInputs.Cd_side, showWind);
-     setVis(vesselInputs.A_front, showWind);
-     setVis(vesselInputs.A_side, showWind);
-  } else {
-     // Desktop: show all
-     if (vesselInputs.mass) Object.values(vesselInputs).forEach(inp => inp.show());
-  }
+  // Iterate all inputs in vesselInputs object
+  Object.values(vesselInputs).forEach(inp => toggle(inp));
 }
 
 function drawVesselSettingsPanel() {
-  push(); 
+  push();
   fill(0, 0, 0, 150);
   noStroke();
   rect(0, 0, width, height);
-  
-  const panelW = width < 720 ? width - 20 : 600;
-  const panelH = width < 720 ? 600 : 400; 
+
+  const panelW = 500;
+  const panelH = 540; // Increased height
   const panelX = Math.max(10, (width - panelW) / 2);
   const panelY = Math.max(10, (height - panelH) / 2);
-  
+
   fill(40, 50, 65);
   stroke(100, 120, 150);
   strokeWeight(2);
   rect(panelX, panelY, panelW, panelH, 12);
-  
+
   fill(255);
   noStroke();
   textSize(20);
   textAlign(CENTER, TOP);
   text("Vessel Settings", panelX + panelW / 2, panelY + 20);
-  
-  textSize(12);
-  fill(200, 220, 255);
-  text("Adjust Mass, Drag, and Wind properties", panelX + panelW / 2, panelY + 50);
 
-  const isNarrow = width < 720;
+  // Tabs
+  textSize(14);
+  const tabY = panelY + 60;
+  const tabW = 100;
+  const cx = panelX + panelW / 2;
   
-  if (isNarrow) {
-     const tabY = panelY + 80;
-     const tabW = panelW / 2;
-     const tabH = 40;
-     
-     // Hydro Tab
-     fill(vesselSettingsTab === 'HYDRO' ? 100 : 60, vesselSettingsTab === 'HYDRO' ? 120 : 70, vesselSettingsTab === 'HYDRO' ? 150 : 80);
-     rect(panelX, tabY, tabW, tabH);
-     fill(255);
-     textAlign(CENTER, CENTER);
-     text("HYDRO", panelX + tabW/2, tabY + tabH/2);
-     
-     // Wind Tab
-     fill(vesselSettingsTab === 'WIND' ? 100 : 60, vesselSettingsTab === 'WIND' ? 120 : 70, vesselSettingsTab === 'WIND' ? 150 : 80);
-     rect(panelX + tabW, tabY, tabW, tabH);
-     fill(255);
-     text("WIND", panelX + tabW + tabW/2, tabY + tabH/2);
-     
-     textAlign(LEFT, CENTER);
-     const contentY = tabY + tabH + 20;
-     const rowH = 50;
-     
-     if (vesselSettingsTab === 'HYDRO') {
-        text("Mass (kg)", panelX + 20, contentY);
-        vesselInputs.mass.position(panelX + 150, contentY - 10);
-        
-        text("Cd Lateral", panelX + 20, contentY + rowH);
-        vesselInputs.Cd_lat.position(panelX + 150, contentY + rowH - 10);
-        
-        text("Area Lat (m²)", panelX + 20, contentY + rowH*2);
-        vesselInputs.A_lat.position(panelX + 150, contentY + rowH*2 - 10);
-     } else {
-        text("Cd Front", panelX + 20, contentY);
-        vesselInputs.Cd_front.position(panelX + 150, contentY - 10);
-        
-        text("Cd Side", panelX + 20, contentY + rowH);
-        vesselInputs.Cd_side.position(panelX + 150, contentY + rowH - 10);
-        
-        text("Area Front", panelX + 20, contentY + rowH*2);
-        vesselInputs.A_front.position(panelX + 150, contentY + rowH*2 - 10);
-        
-        text("Area Side", panelX + 20, contentY + rowH*3);
-        vesselInputs.A_side.position(panelX + 150, contentY + rowH*3 - 10);
-     }
-  } else {
-     textAlign(LEFT, TOP);
-     let col1 = panelX + 40;
-     let col2 = panelX + 320;
-     let yVal = panelY + 100;
-     
-     text("HYDRODYNAMICS", col1, yVal);
-     yVal += 30;
-     
-     text("Mass (kg):", col1, yVal);
-     vesselInputs.mass.position(col1 + 100, yVal);
-     
-     text("Cd Lateral:", col1, yVal + 40);
-     vesselInputs.Cd_lat.position(col1 + 100, yVal + 40);
-     
-     text("Area Lat (m²):", col1, yVal + 80);
-     vesselInputs.A_lat.position(col1 + 100, yVal + 80);
-     
-     yVal = panelY + 100;
-     text("WIND AERODYNAMICS", col2, yVal);
-     yVal += 30;
-     
-     text("Cd Front:", col2, yVal);
-     vesselInputs.Cd_front.position(col2 + 100, yVal);
-     
-     text("Cd Side:", col2, yVal + 40);
-     vesselInputs.Cd_side.position(col2 + 100, yVal + 40);
-
-     text("Area Front:", col2, yVal + 80);
-     vesselInputs.A_front.position(col2 + 100, yVal + 80);
-     
-     text("Area Side:", col2, yVal + 120);
-     vesselInputs.A_side.position(col2 + 100, yVal + 120);
-  }
+  // Text Labels for inputs would go here, relying on DOM inputs for interaction
+  textAlign(LEFT, CENTER);
+  let y = panelY + 100;
+  let x = panelX + 50;
   
-  textAlign(CENTER, TOP);
-  fill(200, 220, 255);
-  text("Click the button again or press ESC to close", panelX + panelW / 2, panelY + panelH - 35);
+  text("Mass (kg):", x, y);
+  if (vesselInputs.mass) vesselInputs.mass.position(x + 130, y - 8);
+  y += 40;
   
-  pop(); // Restore drawing state
-}
-
-function mousePressed() {
-  // Handle clicks on Vessel Settings Tabs (Mobile only)
-  if (vesselSettingsPanelOpen && width < 720) {
-     const panelW = width - 20;
-     const panelH = 600;
-     const panelX = Math.max(10, (width - panelW) / 2);
-     const panelY = Math.max(10, (height - panelH) / 2);
-     const tabY = panelY + 80;
-     const tabW = panelW / 2;
-     const tabH = 40;
-
-     if (mouseY >= tabY && mouseY <= tabY + tabH) {
-       if (mouseX >= panelX && mouseX < panelX + tabW) {
-         vesselSettingsTab = 'HYDRO';
-         updateVesselInputsVisibility();
-         return false; // Consume event
-       } else if (mouseX >= panelX + tabW && mouseX < panelX + 2*tabW) {
-         vesselSettingsTab = 'WIND';
-         updateVesselInputsVisibility();
-         return false; // Consume event
-       }
-     }
-  }
-  // Allow default behavior for other clicks
-  return true;
-}
-
-// ---------------- TOUCH CONTROLS ----------------
-const TOUCH_joysticks = {
-  left: { 
-    active: false, 
-    id: -1, 
-    originX: 0, originY: 0, 
-    currX: 0, currY: 0, 
-    valX: 0, valY: 0 // -1..1 output (surge/sway)
-  },
-  right: { 
-    active: false, 
-    id: -1, 
-    originX: 0, originY: 0, 
-    currX: 0, currY: 0, 
-    valX: 0 // -1..1 output (yaw)
-  },
-  maxDist: 60 // px radius
-};
-
-function readTouch() {
-  // Returns object compatible with our input format
-  // fx: surge (up/down on left stick) -> -1..1
-  // fy: sway (left/right on left stick) -> -1..1
-  // yaw: (right stick x) -> -1..1
+  text("Hydro Cd Lat:", x, y);
+  if (vesselInputs.Cd_lat) vesselInputs.Cd_lat.position(x + 130, y - 8);
+  y += 40;
   
-  // NOTE: In screen coords, Y is down. So stick UP is negative Y.
-  // We want forward thrust (+fx) when stick is UP (-Y).
-  // So fx = -valY
+  text("Hydro Area Lat:", x, y);
+  if (vesselInputs.A_lat) vesselInputs.A_lat.position(x + 130, y - 8);
+  y += 40;
   
-  // Sway: Stick right (+X) is starboard sway (+fy).
-  // fy = valX
-  
-  // Yaw: Right stick right (+X) is CW turn (+yaw).
-  
-  let fx = 0, fy = 0, yaw = 0;
-  
-  if (TOUCH_joysticks.left.active) {
-    fx = -TOUCH_joysticks.left.valY;
-    fy = TOUCH_joysticks.left.valX; // Right is starboard (+)
-  }
-  
-  if (TOUCH_joysticks.right.active) {
-    yaw = TOUCH_joysticks.right.valX; 
-  }
-
-  // Deadband is handled nicely by the touch logic, but let's be sure
-  if (Math.abs(fx) < 0.05) fx = 0;
-  if (Math.abs(fy) < 0.05) fy = 0;
-  if (Math.abs(yaw) < 0.05) yaw = 0;
-
-  return { fx, fy, yaw, active: (TOUCH_joysticks.left.active || TOUCH_joysticks.right.active) };
-}
-
-function drawTouchJoysticks() {
-    // Only show if this looks like a touch device, or if touch is currently active
-    const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-    const anyActive = (TOUCH_joysticks.left.active || TOUCH_joysticks.right.active);
-    
-    if (!isTouch && !anyActive) return;
-
-  push();
-  // Only draw if we detect touch capability or are active
-  // Simple heuristic: just always check specific active states
-  
+  // Divider
+  stroke(255, 255, 255, 30);
+  line(panelX + 20, y, panelX + panelW - 20, y);
   noStroke();
-  
-  // Draw Left Stick
-  if (TOUCH_joysticks.left.active) {
-    fill(255, 255, 255, 50);
-    circle(TOUCH_joysticks.left.originX, TOUCH_joysticks.left.originY, TOUCH_joysticks.maxDist * 2);
-    fill(255, 200, 100, 200);
-    circle(TOUCH_joysticks.left.currX, TOUCH_joysticks.left.currY, 50);
-  } else {
-    // Hint circle
-    fill(255, 255, 255, 20);
-    circle(100, height - 100, 80);
-    fill(255);
-    textAlign(CENTER);
-    textSize(10);
-    text("MOVE", 100, height - 100);
-  }
+  y += 20;
 
-  // Draw Right Stick
-  if (TOUCH_joysticks.right.active) {
-    fill(255, 255, 255, 50);
-    circle(TOUCH_joysticks.right.originX, TOUCH_joysticks.right.originY, TOUCH_joysticks.maxDist * 2);
-    fill(100, 200, 255, 200);
-    circle(TOUCH_joysticks.right.currX, TOUCH_joysticks.right.currY, 50);
-  } else {
-    // Hint circle
-    fill(255, 255, 255, 20);
-    circle(width - 100, height - 100, 80);
-    fill(255);
-    textAlign(CENTER);
-    textSize(10);
-    text("TURN", width - 100, height - 100);
-  }
+  text("Wind Cd Front:", x, y);
+  if (vesselInputs.Cd_front) vesselInputs.Cd_front.position(x + 130, y - 8);
+  y += 40;
+  
+  text("Wind Cd Side:", x, y);
+  if (vesselInputs.Cd_side) vesselInputs.Cd_side.position(x + 130, y - 8);
+  y += 40;
+  
+  text("Wind Area Front:", x, y);
+  if (vesselInputs.A_front) vesselInputs.A_front.position(x + 130, y - 8);
+  y += 40;
+  
+  text("Wind Area Side:", x, y);
+  if (vesselInputs.A_side) vesselInputs.A_side.position(x + 130, y - 8);
+  y += 40;
+  
+  text("Wind CP X (m):", x, y);
+  if (vesselInputs.cp_x) vesselInputs.cp_x.position(x + 130, y - 8);
+  y += 40;
+
   pop();
 }
 
-// Helper to detect if a touch is on a known UI element interaction zone.
-// Used to prevent joystick activation when using UI.
-function isTouchOnUI(x, y) {
-   const isNarrow = width < 720;
-   
-   if (isNarrow) {
-       // Mobile Layout Zones
-       
-       // 1. Wind + Toggle + Buttons area (Top-Left / Mid-Left)
-       // Wind panel starts y=140, h=90 => y=[140..230]
-       // Buttons start y=230 down to ~400
-       // Let's protect the whole left strip for safety?
-       // width < 300px?
-       // Or simpler: define a rectangle for the UI block
-       
-       // Wind Panel zone
-       if (y >= 140 && y < 240 && x < width) return true;
-       
-       // Buttons zone (toggle, settings, vessel)
-       // They are at x=20..
-       // Wind panel is y=140. Mobile buttons start at wy + 100 => 240.
-       // However, DOM elements might have padding or the touch area might extend upwards.
-       // Let's protect form y=220 to safely include the top of the checkbox.
-       if (x < 360 && y >= 220 && y < 500) return true;
-       
-       // Vessel Settings Panel (if open)
-       if (vesselSettingsPanelOpen) {
-           const panelW = width - 20;
-           const panelH = 600;
-           const panelX = Math.max(10, (width - panelW) / 2);
-           const panelY = Math.max(10, (height - panelH) / 2);
-           if (x >= panelX && x <= panelX + panelW && y >= panelY && y <= panelY + panelH) return true;
-       }
-       
-       // Thruster Settings Panel (if open)
-       if (settingsPanelOpen) {
-          // It's a modal overlay, so technically whole screen is UI
-          return true; 
-       }
-   }
-   
-   return false;
-}
-
-function touchStarted() {
-  // Process all new touches
-  let consumed = false;
+function drawTouchJoysticks() {
+  const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  if (!isTouch) return;
+  // If we have no touches and the menu is closed, maybe don't draw anything? 
+  // Optionally draw outlines to show where to touch.
   
-  // joystick config
-  const joystickTopLimit = height - 250; // Only allow joysticks in bottom ~250px
-
-  // p5 stores touches[] array
-  for (let t of touches) {
-    // strict check: ignore touches that are not in the joystick zone
-    // AND ignore touches that are specifically on UI elements
-    if (t.y < joystickTopLimit || isTouchOnUI(t.x, t.y)) continue; 
-
-    // Determine if this touch is left half or right half
-    if (t.x < width / 2) {
-      // Left stick (Translation)
-      if (!TOUCH_joysticks.left.active) {
-        TOUCH_joysticks.left.active = true;
-        TOUCH_joysticks.left.id = t.id;
-        TOUCH_joysticks.left.originX = t.x;
-        TOUCH_joysticks.left.originY = t.y;
-        TOUCH_joysticks.left.currX = t.x;
-        TOUCH_joysticks.left.currY = t.y;
-        TOUCH_joysticks.left.valX = 0;
-        TOUCH_joysticks.left.valY = 0;
-        consumed = true;
-      }
-    } else {
-      // Right stick (Rotation)
-      if (!TOUCH_joysticks.right.active) {
-        TOUCH_joysticks.right.active = true;
-        TOUCH_joysticks.right.id = t.id;
-        TOUCH_joysticks.right.originX = t.x;
-        TOUCH_joysticks.right.originY = t.y;
-        TOUCH_joysticks.right.currX = t.x;
-        TOUCH_joysticks.right.currY = t.y;
-        TOUCH_joysticks.right.valX = 0; // Only care about X for yaw
-        consumed = true;
-      }
+  const midX = width / 2;
+  const stickRadius = 60; // Visual radius
+  const maxDrag = 100;    // Logical interaction radius from readTouch
+  
+  // Center points (must match readTouch)
+  const leftCenter = { x: width * 0.2, y: height * 0.7 };
+  const rightCenter = { x: width * 0.8, y: height * 0.7 };
+  
+  push();
+  noFill();
+  stroke(255, 255, 255, 40);
+  strokeWeight(2);
+  
+  // Draw bases
+  circle(leftCenter.x, leftCenter.y, maxDrag * 2);
+  circle(rightCenter.x, rightCenter.y, maxDrag * 2);
+  
+  // Draw active sticks if touches exist
+  if (typeof touches !== 'undefined') {
+    for (let t of touches) {
+        if (t.y < 120) continue;
+        
+        let cx, cy, baseX, baseY;
+        
+        if (t.x < midX) {
+             baseX = leftCenter.x;
+             baseY = leftCenter.y;
+        } else {
+             baseX = rightCenter.x;
+             baseY = rightCenter.y;
+        }
+        
+        // Clamped handle position for visualization
+        let dx = t.x - baseX;
+        let dy = t.y - baseY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxDrag) {
+            dx = (dx / dist) * maxDrag;
+            dy = (dy / dist) * maxDrag;
+        }
+        
+        fill(255, 255, 255, 150);
+        noStroke();
+        circle(baseX + dx, baseY + dy, 40);
     }
   }
   
-  // Only prevent default if we actually started a joystick interaction
-  // Otherwise allow clicks on buttons etc.
-  if (consumed) {
-    return false;
-  }
-  // return true lets the event pass through (e.g. to DOM elements)
-  return true;
-}
-
-function touchMoved() {
-  let joystickMoved = false;
-
-  for (let t of touches) {
-    if (TOUCH_joysticks.left.active && t.id === TOUCH_joysticks.left.id) {
-      const dx = t.x - TOUCH_joysticks.left.originX;
-      const dy = t.y - TOUCH_joysticks.left.originY;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      const clampedDist = Math.min(dist, TOUCH_joysticks.maxDist);
-      const angle = Math.atan2(dy, dx);
-      
-      TOUCH_joysticks.left.currX = TOUCH_joysticks.left.originX + Math.cos(angle) * clampedDist;
-      TOUCH_joysticks.left.currY = TOUCH_joysticks.left.originY + Math.sin(angle) * clampedDist;
-      
-      // Normalize output -1..1
-      TOUCH_joysticks.left.valX = (TOUCH_joysticks.left.currX - TOUCH_joysticks.left.originX) / TOUCH_joysticks.maxDist;
-      TOUCH_joysticks.left.valY = (TOUCH_joysticks.left.currY - TOUCH_joysticks.left.originY) / TOUCH_joysticks.maxDist;
-      joystickMoved = true;
-    }
-    
-    if (TOUCH_joysticks.right.active && t.id === TOUCH_joysticks.right.id) {
-       const dx = t.x - TOUCH_joysticks.right.originX;
-       const dy = t.y - TOUCH_joysticks.right.originY;
-       // Only care about X for yaw really, but visualise 2d
-       const dist = Math.sqrt(dx*dx + dy*dy);
-       const clampedDist = Math.min(dist, TOUCH_joysticks.maxDist);
-       const angle = Math.atan2(dy, dx);
-
-       TOUCH_joysticks.right.currX = TOUCH_joysticks.right.originX + Math.cos(angle) * clampedDist;
-       TOUCH_joysticks.right.currY = TOUCH_joysticks.right.originY + Math.sin(angle) * clampedDist;
-
-       TOUCH_joysticks.right.valX = (TOUCH_joysticks.right.currX - TOUCH_joysticks.right.originX) / TOUCH_joysticks.maxDist;
-       joystickMoved = true;
-    }
-  }
-  
-  // NOTE: If we return `false`, it prevents default scrolling behavior on mobile.
-  // We want to prevent scroll ONLY if we are actively dragging a joystick.
-  // If we are dragging a slider, we must return true (or let it pass) for it to update.
-  if (joystickMoved) {
-      return false; 
-  }
-  return true;
-}
-
-function touchEnded() {
-  // Check which touches remain
-  const remainingIds = touches.map(t => t.id);
-  
-  if (TOUCH_joysticks.left.active && !remainingIds.includes(TOUCH_joysticks.left.id)) {
-    TOUCH_joysticks.left.active = false;
-    TOUCH_joysticks.left.valX = 0;
-    TOUCH_joysticks.left.valY = 0;
-  }
-  
-  if (TOUCH_joysticks.right.active && !remainingIds.includes(TOUCH_joysticks.right.id)) {
-    TOUCH_joysticks.right.active = false;
-    TOUCH_joysticks.right.valX = 0;
-  }
-  return true;
-}
-
-function drawWindPanelLabel() {
-  const isNarrow = width < 720;
-  
-  // Calculate position same as updateInterfaceLayout
-  let x0, y0, panelW, panelH;
-  
-  if (isNarrow) {
-     x0 = 20;
-     y0 = 140; // under status
-     panelW = Math.min(260, width - 40);
-     panelH = 90;
-  } else {
-     panelW = 260;
-     panelH = 170;
-     x0 = Math.max(20, width - panelW - 20);
-     y0 = 20;
-  }
-
+  // Labels
+  fill(255, 255, 255, 100);
   noStroke();
-  fill(0, 0, 0, 80);
-  rect(x0, y0, panelW, panelH, 10);
+  textAlign(CENTER, CENTER);
+  text("MOVE", leftCenter.x, leftCenter.y + maxDrag + 20);
+  text("TURN", rightCenter.x, rightCenter.y + maxDrag + 20);
   
-  fill(255);
-  textSize(14);
-  textAlign(LEFT, TOP);
-  text("Wind Control", x0 + 14, y0 + 10);
-  
-  textSize(12);
-  let speed = windSpeedSlider ? windSpeedSlider.value() : windSpeed;
-  let dir = windDirSlider ? windDirSlider.value() : windDirectionDeg;
-  
-  if (isNarrow) {
-     text(`Speed: ${speed} m/s`, x0 + 14, y0 + 32);
-     text(`Dir: ${dir}°`, x0 + 14, y0 + 66);
-  } else {
-    // Desktop layout with description
-    text(`Speed: ${speed} m/s`, x0 + 14, y0 + 90);
-    text(`Dir: ${dir}°`, x0 + 14, y0 + 124);
-    
-    // Wind vector viz inside panel
-    const cx = x0 + panelW / 2;
-    const cy = y0 + 60;
-    push();
-    translate(cx, cy);
-    noFill();
-    stroke(255, 255, 255, 50);
-    circle(0, 0, 40);
-    
-    // Arrow pointing FROM wind direction
-    rotate(radians(dir + 180));
-    stroke(100, 200, 255);
-    strokeWeight(2);
-    line(0, -15, 0, 15);
-    line(0, 15, -4, 10);
-    line(0, 15, 4, 10);
-    pop();
-  }
+  pop();
 }
