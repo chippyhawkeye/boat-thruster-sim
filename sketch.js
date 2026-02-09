@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.19";
+const SIM_VERSION = "v0.1.20";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -359,7 +359,9 @@ let windSpeedSlider, windDirSlider;
 let digitalAnchorToggle;
 let settingsButton;
 let vesselSettingsButton;
-let mobileMenuButton; 
+let mobileMenuButton;
+let modalCloseButton;
+
 let masterSettingsOpen = false;
 
 let modeText = ""; // Global mode text for UI display
@@ -367,6 +369,7 @@ let modeText = ""; // Global mode text for UI display
 // Settings panel state
 let settingsPanelOpen = false;
 let thrusterInputs = [];
+
 let vesselSettingsPanelOpen = false;
 let vesselInputs = {};
 let vesselSettingsTab = 'HYDRO'; // 'HYDRO' or 'WIND'
@@ -757,7 +760,7 @@ function setup() {
   updateInterfaceLayout();
 
   // Digital anchor toggle
-  digitalAnchorToggle = createCheckbox("Digital Anchor (hold u,v,r = 0 when stick neutral)", false);
+  digitalAnchorToggle = createCheckbox("Digital Anchor", false);
   digitalAnchorToggle.style("color", "#fff");
 
   // Settings button
@@ -785,6 +788,20 @@ function setup() {
   mobileMenuButton.style("border-radius", "4px");
   mobileMenuButton.hide(); // Hidden by default, shown in layout if mobile
   
+  // Generic Modal Close Button
+  modalCloseButton = createButton("✖");
+  modalCloseButton.mousePressed(closeAllPopups);
+  modalCloseButton.style("background", "#ff4444");
+  modalCloseButton.style("color", "white");
+  modalCloseButton.style("border", "2px solid white");
+  modalCloseButton.style("border-radius", "50%");
+  modalCloseButton.style("width", "36px");
+  modalCloseButton.style("height", "36px");
+  modalCloseButton.style("font-size", "18px");
+  modalCloseButton.style("cursor", "pointer");
+  modalCloseButton.style("z-index", "2000"); // Above everything
+  modalCloseButton.hide();
+
   // Call layout again once buttons exist
   updateInterfaceLayout();
 
@@ -793,9 +810,81 @@ function setup() {
   createVesselInputs();
 }
 
+function closeAllPopups() {
+  settingsPanelOpen = false;
+  vesselSettingsPanelOpen = false;
+
+  // Cleanup Thruster Inputs
+  if (thrusterInputs) {
+    thrusterInputs.forEach(inputs => {
+      if (inputs.T_forward_max) inputs.T_forward_max.hide();
+      if (inputs.T_reverse_max) inputs.T_reverse_max.hide();
+      if (inputs.eta) inputs.eta.hide();
+      if (inputs.forwardSign) inputs.forwardSign.hide();
+    });
+  }
+
+  // Cleanup Vessel Inputs
+  if (vesselInputs) {
+    Object.values(vesselInputs).forEach(inp => {
+       if (inp) inp.hide();
+    });
+  }
+
+  // Note: we don't close masterSettingsOpen here inevitably, 
+  // but usually users want to close the top-most modal.
+  // The layout update will handle showing/hiding buttons.
+  updateInterfaceLayout();
+}
+
 function updateInterfaceLayout() {
   if (!windSpeedSlider) return; // Not ready
   
+  // Check effective modal state
+  const isSettingsOpen = settingsPanelOpen || vesselSettingsPanelOpen;
+  
+  if (isSettingsOpen) {
+      // --- MODAL OPEN STATE ---
+      // Hide EVERYTHING else to ensure clean overlay
+      windSpeedSlider.hide();
+      windDirSlider.hide();
+      if (digitalAnchorToggle) digitalAnchorToggle.hide();
+      if (settingsButton) settingsButton.hide();
+      if (vesselSettingsButton) vesselSettingsButton.hide();
+      if (mobileMenuButton) mobileMenuButton.hide();
+      
+      // Show Close Button
+      if (modalCloseButton) {
+        modalCloseButton.show();
+        // Position relies on calculating the box position again
+        // We reuse logic from drawSettingsPanel / drawVesselSettingsPanel
+        let panelW, panelX, panelY;
+        
+        // This duplication of layout logic is unfortunate but necessary 
+        // given the DOM/Canvas split.
+        if (settingsPanelOpen) {
+            panelW = Math.min(640, width - 20);
+            const panelH = (width < 640) ? 550 : 480;
+            panelX = (width - panelW) / 2;
+            panelY = Math.max(10, (height - panelH) / 2);
+        } else {
+             // Vessel
+            panelW = Math.min(500, width - 20);
+            const panelH = 540;
+            panelX = (width - panelW) / 2;
+            panelY = Math.max(10, (height - panelH) / 2);
+        }
+        
+        // Place X at top-right corner of the panel
+        modalCloseButton.position(panelX + panelW - 30, panelY - 10);
+      }
+      
+      return; // Stop processing normal layout
+  } 
+  
+  // No modal open, hide close button and proceed
+  if (modalCloseButton) modalCloseButton.hide();
+
   // Use a larger breakpoint to include tablets/large phones
   const isNarrow = width < 900;
   
@@ -845,8 +934,8 @@ function updateInterfaceLayout() {
          // 2. Anchor Toggle
          if (digitalAnchorToggle) {
             digitalAnchorToggle.show();
-            // Checkbox
-            digitalAnchorToggle.position(boxLeft + 30, cy);
+            // Checkbox centered roughly in the simplified view
+            digitalAnchorToggle.position(boxLeft + 90, cy);
             digitalAnchorToggle.style("transform", "scale(1.3)");
             digitalAnchorToggle.style("color", "#fff");
          }
@@ -1871,16 +1960,18 @@ function drawSettingsPanel() {
   fill(0, 0, 0, 150);
   noStroke();
   rect(0, 0, width, height);
+
+  const isNarrow = width < 640;
   
   // Settings panel
-  const panelW = 640;
-  const panelH = 480;
-  // Ensure panel fits on screen even if window is narrow
-  const panelX = Math.max(10, (width - panelW) / 2);
+  const panelW = Math.min(640, width - 20);
+  const panelH = isNarrow ? 550 : 480;
+  // Ensure panel fits on screen
+  const panelX = (width - panelW) / 2;
   const panelY = Math.max(10, (height - panelH) / 2);
   
   fill(40, 50, 65);
-  stroke(100, 120, 150);
+  stroke(100, 200, 255);
   strokeWeight(2);
   rect(panelX, panelY, panelW, panelH, 12);
   
@@ -1892,54 +1983,93 @@ function drawSettingsPanel() {
   text("Thruster Settings", panelX + panelW / 2, panelY + 20);
   
   // Instructions
-  textSize(12);
+  textSize(isNarrow ? 11 : 12);
   fill(200, 220, 255);
   text("Edit thruster parameters below. Changes apply immediately.", panelX + panelW / 2, panelY + 50);
-  
-  // Column headers
-  textAlign(LEFT, TOP);
-  textSize(13);
-  fill(180, 200, 220);
-  const headerY = panelY + 85;
-  text("Thruster", panelX + 30, headerY);
-  text("Forward Max (N)", panelX + 150, headerY);
-  text("Reverse Max (N)", panelX + 270, headerY);
-  text("Efficiency (η)", panelX + 390, headerY);
-  text("Forward Dir", panelX + 510, headerY);
 
-  // Thruster rows
-  BOAT_CONFIG.thrusters.forEach((t, idx) => {
-    const rowY = panelY + 120 + idx * 100;
+  if (isNarrow) {
+    // --- MOBILE LAYOUT (Stacked) ---
+    const startY = panelY + 80;
+    
+    BOAT_CONFIG.thrusters.forEach((t, idx) => {
+      const blockY = startY + idx * 140;
+      
+      // Separator line for 2nd and 3rd blocks
+      if (idx > 0) {
+        stroke(255, 255, 255, 30);
+        line(panelX + 20, blockY - 10, panelX + panelW - 20, blockY - 10);
+        noStroke();
+      }
 
-    // Thruster name
-    textSize(15);
-    fill(255, 255, 255);
+      // 1. Thruster Name
+      textSize(16);
+      fill(255, 255, 100);
+      textAlign(LEFT, TOP);
+      text(t.name, panelX + 20, blockY);
+      
+      const col1X = panelX + 20;
+      const col2X = panelX + panelW / 2 + 10;
+      
+      // 2. Fwd / Rev Row
+      textSize(12);
+      fill(180, 200, 220);
+      text("Fwd Max:", col1X, blockY + 30);
+      thrusterInputs[idx].T_forward_max.position(col1X + 65, blockY + 25);
+      
+      text("Rev Max:", col2X, blockY + 30);
+      thrusterInputs[idx].T_reverse_max.position(col2X + 65, blockY + 25);
+      
+      // 3. Eta / Dir Row
+      text("Eff (η):", col1X, blockY + 70);
+      thrusterInputs[idx].eta.position(col1X + 65, blockY + 65);
+      
+      text("Dir (+/-):", col2X, blockY + 70);
+      thrusterInputs[idx].forwardSign.position(col2X + 65, blockY + 65);
+    });
+
+  } else {
+    // --- DESKTOP LAYOUT (Table) ---
+    // Column headers
     textAlign(LEFT, TOP);
-    text(t.name, panelX + 30, rowY + 8);
-
-    // Labels for inputs
-    textSize(11);
+    textSize(13);
     fill(180, 200, 220);
-    text("Forward:", panelX + 150, rowY - 5);
-    text("Reverse:", panelX + 270, rowY - 5);
-    text("Motor efficiency:", panelX + 390, rowY - 5);
-    text("Direction:", panelX + 510, rowY - 5);
+    const headerY = panelY + 85;
+    text("Thruster", panelX + 30, headerY);
+    text("Forward Max (N)", panelX + 150, headerY);
+    text("Reverse Max (N)", panelX + 270, headerY);
+    text("Efficiency (η)", panelX + 390, headerY);
+    text("Forward Dir", panelX + 510, headerY);
 
-    // Position input fields
-    thrusterInputs[idx].T_forward_max.position(panelX + 150, rowY + 15);
-    thrusterInputs[idx].T_reverse_max.position(panelX + 270, rowY + 15);
-    thrusterInputs[idx].eta.position(panelX + 390, rowY + 15);
-    thrusterInputs[idx].forwardSign.position(panelX + 510, rowY + 15);
+    // Thruster rows
+    BOAT_CONFIG.thrusters.forEach((t, idx) => {
+      const rowY = panelY + 120 + idx * 100;
 
-    // Current values hint
-    textSize(10);
-    fill(150, 170, 190);
-    text(`Range: 100-5000 N`, panelX + 150, rowY + 55);
-    text(`Range: 100-5000 N`, panelX + 270, rowY + 55);
-    text(`Range: 0.1-1.0`, panelX + 390, rowY + 55);
-    text(`+1: Forward = +cmd`, panelX + 510, rowY + 55);
-    text(`-1: Forward = -cmd`, panelX + 510, rowY + 70);
-  });
+      // Thruster name
+      textSize(15);
+      fill(255, 255, 255);
+      textAlign(LEFT, TOP);
+      text(t.name, panelX + 30, rowY + 8);
+
+      // Labels for inputs (helper only, usually header is enough but existing code had them inline?)
+      // Actually standard table usually relies on headers. 
+      // The old code printed small labels above inputs too?
+      // Let's stick to the previous desktop look but maybe cleaner.
+      
+      // Position input fields
+      thrusterInputs[idx].T_forward_max.position(panelX + 150, rowY + 15);
+      thrusterInputs[idx].T_reverse_max.position(panelX + 270, rowY + 15);
+      thrusterInputs[idx].eta.position(panelX + 390, rowY + 15);
+      thrusterInputs[idx].forwardSign.position(panelX + 510, rowY + 15);
+
+      // Current values hint / ranges
+      textSize(10);
+      fill(150, 170, 190);
+      text(`Range: 100+`, panelX + 150, rowY + 45);
+      text(`Range: 100+`, panelX + 270, rowY + 45);
+      text(`0.1-1.0`, panelX + 390, rowY + 45);
+      text(`+/- 1`, panelX + 510, rowY + 45);
+    });
+  }
 
   // Close instruction
   textSize(13);
@@ -2123,139 +2253,213 @@ function toggleVesselSettingsPanel() {
   Object.values(vesselInputs).forEach(inp => toggle(inp));
 }
 
+function drawTouchJoysticks() {
+  // Only draw if touch capability is detected OR if there are active touches
+  const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  const hasTouches = (typeof touches !== 'undefined' && touches.length > 0);
+  
+  if (!isTouch && !hasTouches) return;
+
+  const midX = width / 2;
+  const stickRadius = 100;
+  
+  // Center points (match readTouch values)
+  const leftCenter = { x: width * 0.2, y: height * 0.7 };
+  const rightCenter = { x: width * 0.8, y: height * 0.7 };
+
+  // Calculate Knob Positions
+  let leftPos = { x: leftCenter.x, y: leftCenter.y };
+  let rightPos = { x: rightCenter.x, y: rightCenter.y };
+  let leftActive = false;
+  let rightActive = false;
+
+  if (hasTouches) {
+    for (let t of touches) {
+      if (t.y < 120) continue; // Ignore top bar
+      
+      if (t.x < midX) {
+        // Left Stick (Free move)
+        leftPos = { x: t.x, y: t.y };
+        leftActive = true;
+      } else {
+        // Right Stick (Constrained Horizontal)
+        rightPos = { x: t.x, y: rightCenter.y };
+        rightActive = true;
+      }
+    }
+  }
+
+  // Draw Bases
+  stroke(255, 80);
+  strokeWeight(2);
+  noFill();
+  
+  // Left Base
+  ellipse(leftCenter.x, leftCenter.y, stickRadius * 2);
+  // Crosshair
+  line(leftCenter.x - 10, leftCenter.y, leftCenter.x + 10, leftCenter.y);
+  line(leftCenter.x, leftCenter.y - 10, leftCenter.x, leftCenter.y + 10);
+  
+  // Right Base
+  ellipse(rightCenter.x, rightCenter.y, stickRadius * 2);
+  // Horizontal Track (Visual Guide)
+  line(rightCenter.x - stickRadius, rightCenter.y, rightCenter.x + stickRadius, rightCenter.y);
+
+  // Labels
+  noStroke();
+  fill(255, 180);
+  textSize(14);
+  textAlign(CENTER, TOP);
+  text("Surge / Sway", leftCenter.x, leftCenter.y + stickRadius + 15);
+  text("Yaw (Turn)", rightCenter.x, rightCenter.y + stickRadius + 15);
+
+  // Draw Thumbs (Knobs)
+  
+  // Left Knob
+  if (leftActive) {
+      stroke(255, 100);
+      strokeWeight(4);
+      line(leftCenter.x, leftCenter.y, leftPos.x, leftPos.y); // Tether
+      noStroke();
+      fill(255, 150);
+      ellipse(leftPos.x, leftPos.y, 60);
+  } else {
+      noStroke();
+      fill(255, 50); // Ghost knob
+      ellipse(leftPos.x, leftPos.y, 40);
+  }
+
+  // Right Knob
+  if (rightActive) {
+      stroke(255, 100);
+      strokeWeight(4);
+      line(rightCenter.x, rightCenter.y, rightPos.x, rightPos.y); // Tether
+      noStroke();
+      fill(255, 150);
+      ellipse(rightPos.x, rightPos.y, 60);
+  } else {
+      noStroke();
+      fill(255, 50); // Ghost knob
+      ellipse(rightPos.x, rightPos.y, 40);
+  }
+}
+
 function drawVesselSettingsPanel() {
   push();
+  
+  // Overlay
   fill(0, 0, 0, 150);
   noStroke();
   rect(0, 0, width, height);
-
-  const panelW = 500;
-  const panelH = 540; // Increased height
-  const panelX = Math.max(10, (width - panelW) / 2);
+  
+  // Panel
+  const panelW = Math.min(500, width - 20);
+  const panelH = 540;
+  const panelX = (width - panelW) / 2;
   const panelY = Math.max(10, (height - panelH) / 2);
-
+  
   fill(40, 50, 65);
-  stroke(100, 120, 150);
+  stroke(100, 200, 255);
   strokeWeight(2);
   rect(panelX, panelY, panelW, panelH, 12);
-
+  
+  // Title
   fill(255);
   noStroke();
   textSize(20);
   textAlign(CENTER, TOP);
-  text("Vessel Settings", panelX + panelW / 2, panelY + 20);
+  text("Vessel Configuration", panelX + panelW / 2, panelY + 20);
 
-  // Tabs
+  // Layout Constants
+  const startY = panelY + 70;
+  const leftX = panelX + 30;
+  const inputOff = 130; 
+  const rowH = 45;
+
   textSize(14);
-  const tabY = panelY + 60;
-  const tabW = 100;
-  const cx = panelX + panelW / 2;
-  
-  // Text Labels for inputs would go here, relying on DOM inputs for interaction
   textAlign(LEFT, CENTER);
-  let y = panelY + 100;
-  let x = panelX + 50;
   
-  text("Mass (kg):", x, y);
-  if (vesselInputs.mass) vesselInputs.mass.position(x + 130, y - 8);
-  y += 40;
+  // --- Group 1: Physical / Hydro ---
+  fill(100, 200, 255);
+  text("Physical & Hydrodynamics", leftX, startY);
   
-  text("Hydro Cd Lat:", x, y);
-  if (vesselInputs.Cd_lat) vesselInputs.Cd_lat.position(x + 130, y - 8);
-  y += 40;
+  let r = 1; 
+  fill(220);
   
-  text("Hydro Area Lat:", x, y);
-  if (vesselInputs.A_lat) vesselInputs.A_lat.position(x + 130, y - 8);
-  y += 40;
+  // Mass
+  text("Mass (kg):", leftX, startY + r*rowH);
+  if (vesselInputs.mass) vesselInputs.mass.position(leftX + inputOff, startY + r*rowH - 10);
+  r++;
   
-  // Divider
-  stroke(255, 255, 255, 30);
-  line(panelX + 20, y, panelX + panelW - 20, y);
-  noStroke();
-  y += 20;
-
-  text("Wind Cd Front:", x, y);
-  if (vesselInputs.Cd_front) vesselInputs.Cd_front.position(x + 130, y - 8);
-  y += 40;
+  // Cd_lat
+  text("Lat Drag Cd:", leftX, startY + r*rowH);
+  if (vesselInputs.Cd_lat) vesselInputs.Cd_lat.position(leftX + inputOff, startY + r*rowH - 10);
+  r++;
   
-  text("Wind Cd Side:", x, y);
-  if (vesselInputs.Cd_side) vesselInputs.Cd_side.position(x + 130, y - 8);
-  y += 40;
+  // A_lat
+  text("Lat Area (m²):", leftX, startY + r*rowH);
+  if (vesselInputs.A_lat) vesselInputs.A_lat.position(leftX + inputOff, startY + r*rowH - 10);
+  r++;
   
-  text("Wind Area Front:", x, y);
-  if (vesselInputs.A_front) vesselInputs.A_front.position(x + 130, y - 8);
-  y += 40;
-  
-  text("Wind Area Side:", x, y);
-  if (vesselInputs.A_side) vesselInputs.A_side.position(x + 130, y - 8);
-  y += 40;
-  
-  text("Wind CP X (m):", x, y);
-  if (vesselInputs.cp_x) vesselInputs.cp_x.position(x + 130, y - 8);
-  y += 40;
-
-  pop();
-}
-
-function drawTouchJoysticks() {
-  const isTouch = (typeof window !== 'undefined') && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-  if (!isTouch) return;
-  // If we have no touches and the menu is closed, maybe don't draw anything? 
-  // Optionally draw outlines to show where to touch.
-  
-  const midX = width / 2;
-  const stickRadius = 60; // Visual radius
-  const maxDrag = 100;    // Logical interaction radius from readTouch
-  
-  // Center points (must match readTouch)
-  const leftCenter = { x: width * 0.2, y: height * 0.7 };
-  const rightCenter = { x: width * 0.8, y: height * 0.7 };
-  
-  push();
-  noFill();
+  // Separator
   stroke(255, 255, 255, 40);
-  strokeWeight(2);
-  
-  // Draw bases
-  circle(leftCenter.x, leftCenter.y, maxDrag * 2);
-  circle(rightCenter.x, rightCenter.y, maxDrag * 2);
-  
-  // Draw active sticks if touches exist
-  if (typeof touches !== 'undefined') {
-    for (let t of touches) {
-        if (t.y < 120) continue;
-        
-        let cx, cy, baseX, baseY;
-        
-        if (t.x < midX) {
-             baseX = leftCenter.x;
-             baseY = leftCenter.y;
-        } else {
-             baseX = rightCenter.x;
-             baseY = rightCenter.y;
-        }
-        
-        // Clamped handle position for visualization
-        let dx = t.x - baseX;
-        let dy = t.y - baseY;
-        const dist = Math.hypot(dx, dy);
-        if (dist > maxDrag) {
-            dx = (dx / dist) * maxDrag;
-            dy = (dy / dist) * maxDrag;
-        }
-        
-        fill(255, 255, 255, 150);
-        noStroke();
-        circle(baseX + dx, baseY + dy, 40);
-    }
-  }
-  
-  // Labels
-  fill(255, 255, 255, 100);
+  line(leftX, startY + r*rowH + 10, panelX + panelW - 30, startY + r*rowH + 10);
   noStroke();
-  textAlign(CENTER, CENTER);
-  text("MOVE", leftCenter.x, leftCenter.y + maxDrag + 20);
-  text("TURN", rightCenter.x, rightCenter.y + maxDrag + 20);
+  r += 0.8;
+
+  // --- Group 2: Wind ---
+  fill(100, 200, 255);
+  text("Wind Aerodynamics", leftX, startY + r*rowH);
+  r++;
   
+  fill(220);
+  
+  if (panelW > 400) {
+      // 2 Column layout for wind
+      const col2 = panelX + panelW/2 + 10;
+      const inputOff2 = 120;
+      
+      // Row 1
+      text("Cd (Front):", leftX, startY + r*rowH);
+      if (vesselInputs.Cd_front) vesselInputs.Cd_front.position(leftX + inputOff, startY + r*rowH - 10);
+      
+      text("Cd (Side):", col2, startY + r*rowH);
+      if (vesselInputs.Cd_side) vesselInputs.Cd_side.position(col2 + inputOff2, startY + r*rowH - 10);
+      r++;
+
+      // Row 2
+      text("Area Front:", leftX, startY + r*rowH);
+      if (vesselInputs.A_front) vesselInputs.A_front.position(leftX + inputOff, startY + r*rowH - 10);
+
+      text("Area Side:", col2, startY + r*rowH);
+      if (vesselInputs.A_side) vesselInputs.A_side.position(col2 + inputOff2, startY + r*rowH - 10);
+      r++;
+
+      // Row 3 (Single item)
+      text("CP X offset:", leftX, startY + r*rowH);
+      if (vesselInputs.cp_x) vesselInputs.cp_x.position(leftX + inputOff, startY + r*rowH - 10);
+
+  } else {
+      // Mobile Stack
+      text("Cd (Front):", leftX, startY + r*rowH);
+      if (vesselInputs.Cd_front) vesselInputs.Cd_front.position(leftX + inputOff, startY + r*rowH - 10);
+      r++;
+      
+      text("Cd (Side):", leftX, startY + r*rowH);
+      if (vesselInputs.Cd_side) vesselInputs.Cd_side.position(leftX + inputOff, startY + r*rowH - 10);
+      r++;
+      
+      text("Area Front:", leftX, startY + r*rowH);
+      if (vesselInputs.A_front) vesselInputs.A_front.position(leftX + inputOff, startY + r*rowH - 10);
+      r++;
+
+      text("Area Side:", leftX, startY + r*rowH);
+      if (vesselInputs.A_side) vesselInputs.A_side.position(leftX + inputOff, startY + r*rowH - 10);
+      r++;
+       
+      text("CP X offset:", leftX, startY + r*rowH);
+      if (vesselInputs.cp_x) vesselInputs.cp_x.position(leftX + inputOff, startY + r*rowH - 10);
+  }
+
   pop();
 }
