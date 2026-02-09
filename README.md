@@ -1,0 +1,1 @@
+This is a thruster and digital anchor simulator for a small boat with 3 thrusters.  It was written entirely via prompting using primarily Gemini Pro 3 by an engineer that has only dabbled in coding.  No code was reviewed or hand written, all validation is by adding variables into the UI.
