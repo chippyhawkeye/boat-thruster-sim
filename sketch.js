@@ -16,7 +16,7 @@
  * - Thruster angle is FORCE direction in BODY frame (deg)
  */
 
-const SIM_VERSION = "v0.1.20";
+const SIM_VERSION = "v0.1.21";
 const PX_PER_M = 20;
 
 // ---------------- DOCK ----------------
@@ -821,6 +821,9 @@ function closeAllPopups() {
       if (inputs.T_reverse_max) inputs.T_reverse_max.hide();
       if (inputs.eta) inputs.eta.hide();
       if (inputs.forwardSign) inputs.forwardSign.hide();
+      if (inputs.x) inputs.x.hide();
+      if (inputs.y) inputs.y.hide();
+      if (inputs.angle) inputs.angle.hide();
     });
   }
 
@@ -1939,15 +1942,25 @@ function toggleSettingsPanel() {
       inputs.T_reverse_max.value(BOAT_CONFIG.thrusters[idx].T_reverse_max.toString());
       inputs.eta.value(BOAT_CONFIG.thrusters[idx].eta.toString());
       inputs.forwardSign.value(BOAT_CONFIG.thrusters[idx].forwardSign.toString());
+      inputs.x.value(BOAT_CONFIG.thrusters[idx].x.toString());
+      inputs.y.value(BOAT_CONFIG.thrusters[idx].y.toString());
+      inputs.angle.value(BOAT_CONFIG.thrusters[idx].angle.toString());
+      
       inputs.T_forward_max.show();
       inputs.T_reverse_max.show();
       inputs.eta.show();
       inputs.forwardSign.show();
+      inputs.x.show();
+      inputs.y.show();
+      inputs.angle.show();
     } else {
       inputs.T_forward_max.hide();
       inputs.T_reverse_max.hide();
       inputs.eta.hide();
       inputs.forwardSign.hide();
+      inputs.x.hide();
+      inputs.y.hide();
+      inputs.angle.hide();
     }
   });
 
@@ -1964,8 +1977,10 @@ function drawSettingsPanel() {
   const isNarrow = width < 640;
   
   // Settings panel
-  const panelW = Math.min(640, width - 20);
-  const panelH = isNarrow ? 550 : 480;
+  // Increase width on Desktop to fit 7 columns
+  const panelW = isNarrow ? Math.min(640, width - 20) : Math.min(800, width - 40);
+  // Increase height on Mobile to fit extra row
+  const panelH = isNarrow ? 660 : 500;
   // Ensure panel fits on screen
   const panelX = (width - panelW) / 2;
   const panelY = Math.max(10, (height - panelH) / 2);
@@ -1990,9 +2005,10 @@ function drawSettingsPanel() {
   if (isNarrow) {
     // --- MOBILE LAYOUT (Stacked) ---
     const startY = panelY + 80;
+    const blockH = 180; // Increased height per block
     
     BOAT_CONFIG.thrusters.forEach((t, idx) => {
-      const blockY = startY + idx * 140;
+      const blockY = startY + idx * blockH;
       
       // Separator line for 2nd and 3rd blocks
       if (idx > 0) {
@@ -2007,6 +2023,7 @@ function drawSettingsPanel() {
       textAlign(LEFT, TOP);
       text(t.name, panelX + 20, blockY);
       
+      // Columns for layout
       const col1X = panelX + 20;
       const col2X = panelX + panelW / 2 + 10;
       
@@ -2025,6 +2042,16 @@ function drawSettingsPanel() {
       
       text("Dir (+/-):", col2X, blockY + 70);
       thrusterInputs[idx].forwardSign.position(col2X + 65, blockY + 65);
+
+      // 4. Pos / Angle Row
+      text("Pos X:", col1X, blockY + 110);
+      thrusterInputs[idx].x.position(col1X + 50, blockY + 105);
+
+      text("Pos Y:", col1X + 115, blockY + 110);
+      thrusterInputs[idx].y.position(col1X + 155, blockY + 105);
+
+      text("Ang:", col2X, blockY + 110);
+      thrusterInputs[idx].angle.position(col2X + 40, blockY + 105);
     });
 
   } else {
@@ -2034,11 +2061,25 @@ function drawSettingsPanel() {
     textSize(13);
     fill(180, 200, 220);
     const headerY = panelY + 85;
-    text("Thruster", panelX + 30, headerY);
-    text("Forward Max (N)", panelX + 150, headerY);
-    text("Reverse Max (N)", panelX + 270, headerY);
-    text("Efficiency (η)", panelX + 390, headerY);
-    text("Forward Dir", panelX + 510, headerY);
+    
+    // Define column X positions
+    const c0 = panelX + 30;  // Name
+    const c1 = panelX + 130; // Fwd
+    const c2 = panelX + 230; // Rev
+    const c3 = panelX + 330; // Eta
+    const c4 = panelX + 430; // Dir
+    const c5 = panelX + 530; // X
+    const c6 = panelX + 610; // Y
+    const c7 = panelX + 690; // Ang
+
+    text("Thruster", c0, headerY);
+    text("Fwd (N)", c1, headerY);
+    text("Rev (N)", c2, headerY);
+    text("Eff (η)", c3, headerY);
+    text("Dir", c4, headerY);
+    text("Pos X", c5, headerY);
+    text("Pos Y", c6, headerY);
+    text("Angle", c7, headerY);
 
     // Thruster rows
     BOAT_CONFIG.thrusters.forEach((t, idx) => {
@@ -2048,26 +2089,28 @@ function drawSettingsPanel() {
       textSize(15);
       fill(255, 255, 255);
       textAlign(LEFT, TOP);
-      text(t.name, panelX + 30, rowY + 8);
+      text(t.name, c0, rowY + 8);
 
-      // Labels for inputs (helper only, usually header is enough but existing code had them inline?)
-      // Actually standard table usually relies on headers. 
-      // The old code printed small labels above inputs too?
-      // Let's stick to the previous desktop look but maybe cleaner.
-      
       // Position input fields
-      thrusterInputs[idx].T_forward_max.position(panelX + 150, rowY + 15);
-      thrusterInputs[idx].T_reverse_max.position(panelX + 270, rowY + 15);
-      thrusterInputs[idx].eta.position(panelX + 390, rowY + 15);
-      thrusterInputs[idx].forwardSign.position(panelX + 510, rowY + 15);
+      thrusterInputs[idx].T_forward_max.position(c1, rowY + 15);
+      thrusterInputs[idx].T_reverse_max.position(c2, rowY + 15);
+      thrusterInputs[idx].eta.position(c3, rowY + 15);
+      thrusterInputs[idx].forwardSign.position(c4, rowY + 15);
+      
+      thrusterInputs[idx].x.position(c5, rowY + 15);
+      thrusterInputs[idx].y.position(c6, rowY + 15);
+      thrusterInputs[idx].angle.position(c7, rowY + 15);
 
       // Current values hint / ranges
       textSize(10);
       fill(150, 170, 190);
-      text(`Range: 100+`, panelX + 150, rowY + 45);
-      text(`Range: 100+`, panelX + 270, rowY + 45);
-      text(`0.1-1.0`, panelX + 390, rowY + 45);
-      text(`+/- 1`, panelX + 510, rowY + 45);
+      text(`100+`, c1, rowY + 45);
+      text(`100+`, c2, rowY + 45);
+      text(`0-1`, c3, rowY + 45);
+      text(`+/-1`, c4, rowY + 45);
+      text(`m`, c5, rowY + 45);
+      text(`m`, c6, rowY + 45);
+      text(`deg`, c7, rowY + 45);
     });
   }
 
@@ -2089,7 +2132,7 @@ function createThrusterInputs() {
     inputs.T_forward_max.size(60);
     inputs.T_forward_max.input(() => {
       let val = parseFloat(inputs.T_forward_max.value());
-      if (!isNaN(val)) t.T_forward_max = val;
+      if (!isNaN(val)) { t.T_forward_max = val; buildAllocator(); }
     });
     inputs.T_forward_max.hide();
 
@@ -2098,7 +2141,7 @@ function createThrusterInputs() {
     inputs.T_reverse_max.size(60);
     inputs.T_reverse_max.input(() => {
       let val = parseFloat(inputs.T_reverse_max.value());
-      if (!isNaN(val)) t.T_reverse_max = val;
+      if (!isNaN(val)) { t.T_reverse_max = val; buildAllocator(); }
     });
     inputs.T_reverse_max.hide();
 
@@ -2107,7 +2150,7 @@ function createThrusterInputs() {
     inputs.eta.size(60);
     inputs.eta.input(() => {
       let val = parseFloat(inputs.eta.value());
-      if (!isNaN(val)) t.eta = val;
+      if (!isNaN(val)) { t.eta = val; buildAllocator(); }
     });
     inputs.eta.hide();
 
@@ -2116,9 +2159,36 @@ function createThrusterInputs() {
     inputs.forwardSign.size(60);
     inputs.forwardSign.input(() => {
       let val = parseFloat(inputs.forwardSign.value());
-      if (!isNaN(val)) t.forwardSign = val;
+      if (!isNaN(val)) { t.forwardSign = val; buildAllocator(); }
     });
     inputs.forwardSign.hide();
+
+    // X Position
+    inputs.x = createInput(t.x.toString());
+    inputs.x.size(50);
+    inputs.x.input(() => {
+      let val = parseFloat(inputs.x.value());
+      if (!isNaN(val)) { t.x = val; buildAllocator(); }
+    });
+    inputs.x.hide();
+
+    // Y Position
+    inputs.y = createInput(t.y.toString());
+    inputs.y.size(50);
+    inputs.y.input(() => {
+      let val = parseFloat(inputs.y.value());
+      if (!isNaN(val)) { t.y = val; buildAllocator(); }
+    });
+    inputs.y.hide();
+
+    // Angle
+    inputs.angle = createInput(t.angle.toString());
+    inputs.angle.size(50);
+    inputs.angle.input(() => {
+      let val = parseFloat(inputs.angle.value());
+      if (!isNaN(val)) { t.angle = val; buildAllocator(); }
+    });
+    inputs.angle.hide();
 
     thrusterInputs.push(inputs);
   });
